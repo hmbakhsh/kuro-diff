@@ -16,7 +16,7 @@ The app ships as a notarized `.dmg` with auto-update via GitHub Releases. No edi
 
 ## Implementation Progress & Handoff Notes
 
-**Last updated:** 2026-04-24. **Phases 1 and 2 shipped; Phases 3–7 pending.** Read this whole section before making assumptions about the state of the tree — several plan details were changed during implementation.
+**Last updated:** 2026-04-24. **Phases 1–5 shipped; Phases 6–7 pending.** Read this whole section before making assumptions about the state of the tree — several plan details were changed during implementation.
 
 ### Phases shipped
 
@@ -79,11 +79,22 @@ Do not "fix" these back to the plan text without understanding why they changed:
 - File viewer renders text files with syntax highlighting ✅
 - Large-file / binary / image viewers in place ✅
 - Find-in-file (Cmd+F) overlay ✅
-- Everything else pending
+- Diff viewer with base/head picker + unified/split toggle ✅
+- `gh auth status` integration + PR list + PR detail diff ✅
+- Copy-for-agent, command menu (Cmd+P) still pending (Phase 6)
 
 **Quality Gates:**
 - Every tRPC procedure has zod input schema ✅
 - Every long-running subprocess has 30s timeout ✅
+
+### Phase 5 decisions (shipped)
+
+1. **Persisted React Query cache.** Added `@tanstack/react-query-persist-client` + `@tanstack/query-sync-storage-persister` (localStorage). Main reason: PR queries are `gh`-bound so each unnecessary refetch burns API quota. With a 24h `gcTime` + 14-day persister, switching between Files/Diffs/PRs never refires a network call that just resolved. File bodies (`fs.readFile`) carry `meta.persist = false` so localStorage's ~5MB cap doesn't blow up from text file reads.
+2. **ensureGitHub is opt-in, not mandatory.** The tRPC mutation only fires from the PR route when the stored repo's `github` field is `null` (pre-Phase-5 workspace entries). Repos added by `addRepo`/`addRepoFromDialog` get mapped at resolve-time via `github-mapping.ts` + `hosted-git-info@7`, so the common path has zero extra spawns.
+3. **Rate-limit polling dropped.** Plan called for `gh api rate_limit` poll every 60s. In practice that itself consumes a request per minute just to display a pill nobody looks at. Replaced with a 5-minute `staleTime` query that refreshes on mount only. Pill only shows when remaining < 1000 — above that, the display is noise.
+4. **`openExternal` uses a host allowlist, not a URL allowlist.** Original draft hardcoded full URLs (auth help, docs). That broke "Open on GitHub" buttons for PR URLs (`github.com/o/r/pull/N`). Switched to `ALLOWED_EXTERNAL_HOSTS` check on the parsed URL — `github.com`, `cli.github.com`, `docs.github.com`. Still gated on `https:` protocol to refuse `file://` or custom-scheme injection.
+5. **`GhError.kind` surfaced through tRPC `error.data`.** tRPC v11 strips error fields other than `message`/`code`/`data`, so we project `{ kind, stderr, message }` onto `data` and the renderer switches on `kind` for the recovery UI. `PRErrorState` maps each kind to a contextual copy-flow (install, sign in, retry, wait).
+6. **`gh` binary resolution piggybacks on `gitEnv()`.** No second `shell-env` call — `initGitBinary()` already captured the login-shell `PATH` at boot. `resolveGhBinary()` just scans that same `PATH` for `gh`. Sets `NO_COLOR=1`, `GH_PROMPT_DISABLED=1`, `CLICOLOR=0` on every spawn so stdout is parseable and TTY prompts can't hang the process.
 
 ### Phase 3 decisions (shipped)
 
@@ -590,9 +601,9 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 - [x] Base/head picker typeahead-searches local branches, tags, and `origin/*` remotes
 - [x] Unified/split toggle persists globally
 - [ ] `Cmd+Shift+C` copies selection in the documented format to the system clipboard
-- [ ] `gh auth status` integration surfaces logged-in/logged-out state; PR features gated on a successful status check; sign-in flow points the user to `gh auth login` in their terminal
-- [ ] PR list supports state, author, label, and title filters
-- [ ] PR detail shows diff using `@pierre/diffs`
+- [x] `gh auth status` integration surfaces logged-in/logged-out state; PR features gated on a successful status check; sign-in flow points the user to `gh auth login` in their terminal
+- [x] PR list supports state, author, label, and title filters
+- [x] PR detail shows diff using `@pierre/diffs`
 - [ ] `Cmd+P` command menu searches files in the current repo
 - [ ] All critical paths keyboard-accessible with visible focus rings
 
