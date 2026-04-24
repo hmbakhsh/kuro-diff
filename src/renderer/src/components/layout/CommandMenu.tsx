@@ -315,6 +315,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                   .map((path) => (
                     <FileRow
                       key={`recent:${path}`}
+                      value={`recent:${path}`}
                       path={path}
                       icon={History}
                       onSelect={onFileSelect}
@@ -326,6 +327,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               {rankedFiles.map((path) => (
                 <FileRow
                   key={path}
+                  value={path}
                   path={path}
                   icon={FileCode}
                   onSelect={onFileSelect}
@@ -403,10 +405,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
 
 function FileRow({
   path,
+  value,
   icon: Icon,
   onSelect,
 }: {
   path: string;
+  value: string;
   icon: React.ComponentType<{ className?: string }>;
   onSelect(path: string): void;
 }) {
@@ -415,7 +419,7 @@ function FileRow({
   const dir = segments.slice(0, -1).join("/");
   return (
     <Command.Item
-      value={path}
+      value={value}
       onSelect={() => onSelect(path)}
       className={cn(
         "flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-1.5 text-sm",
