@@ -30,6 +30,12 @@ export interface SpawnGitOptions {
   readonly timeoutMs?: number
   readonly maxBuffer?: number
   readonly input?: string
+  /**
+   * Exit codes that should resolve with stdout instead of throwing. Use for
+   * commands where a non-zero exit is meaningful (e.g. `diff --no-index`
+   * returns 1 when files differ).
+   */
+  readonly allowedExitCodes?: readonly number[]
 }
 
 /**
@@ -38,7 +44,13 @@ export interface SpawnGitOptions {
  */
 export function runGit(
   args: readonly string[],
-  { cwd, timeoutMs = DEFAULT_TIMEOUT_MS, maxBuffer = 64 * 1024 * 1024, input }: SpawnGitOptions,
+  {
+    cwd,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    maxBuffer = 64 * 1024 * 1024,
+    input,
+    allowedExitCodes,
+  }: SpawnGitOptions,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const { path: binary } = resolveGitBinary()
@@ -79,7 +91,7 @@ export function runGit(
         reject(new GitCommandError(`git ${args[0]} timed out after ${timeoutMs}ms`, stderr, -1))
         return
       }
-      if (exitCode !== 0) {
+      if (exitCode !== 0 && !(allowedExitCodes && exitCode !== null && allowedExitCodes.includes(exitCode))) {
         reject(new GitCommandError(`git ${args.join(' ')} exited ${exitCode}`, stderr, exitCode ?? -1))
         return
       }
@@ -139,4 +151,40 @@ export function streamGit(
       resolve()
     })
   })
+}
+
+/**
+ * Compose a single patch representing every uncommitted change in the worktree:
+ * tracked (staged + unstaged) via `git diff HEAD`, plus untracked files as
+ * synthetic new-file patches via `git diff --no-index /dev/null <path>` (which
+ * exits 1 when differences are found — explicitly whitelisted).
+ */
+export async function composeWorkingTreeDiff(cwd: string): Promise<string> {
+  const tracked = await runGit(['diff', '--no-color', '-M', 'HEAD'], {
+    cwd,
+    maxBuffer: 128 * 1024 * 1024,
+  })
+  const untrackedList = await runGit(
+    ['ls-files', '--others', '--exclude-standard', '-z'],
+    { cwd },
+  )
+  const paths = untrackedList.split('\0').filter(Boolean)
+  if (paths.length === 0) return tracked
+  const fragments: string[] = []
+  for (const p of paths) {
+    try {
+      const frag = await runGit(
+        ['diff', '--no-color', '--no-index', '--', '/dev/null', p],
+        { cwd, maxBuffer: 64 * 1024 * 1024, allowedExitCodes: [1] },
+      )
+      fragments.push(frag)
+    } catch (err) {
+      // Skip a single untracked file that blows the buffer rather than
+      // failing the whole composition. A large untracked artefact shouldn't
+      // hide the rest of the review.
+      if (err instanceof GitCommandError && err.message.includes('exceeded')) continue
+      throw err
+    }
+  }
+  return tracked + fragments.join('')
 }
