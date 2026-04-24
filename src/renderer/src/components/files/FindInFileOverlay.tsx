@@ -5,84 +5,118 @@ import { cn } from '@renderer/lib/cn'
 interface FindInFileOverlayProps {
   contents: string
   onClose(): void
-}
-
-interface Hit {
-  lineIndex: number // 0-based
-  charStart: number
-  charEnd: number
-  snippet: string
+  /**
+   * Scope used to find the `<diffs-container>` Pierre renders into. Defaults
+   * to `document` but passing the nearest viewer node scopes searches to this
+   * pane when multiple files are open.
+   */
+  scope?: HTMLElement | null
 }
 
 const MAX_HITS = 500
+const HIGHLIGHT_ALL = 'kuro-search-hit'
+const HIGHLIGHT_CURRENT = 'kuro-search-current'
+const HIGHLIGHT_STYLES = `
+::highlight(${HIGHLIGHT_ALL}) {
+  background-color: rgba(250, 204, 21, 0.55);
+  color: inherit;
+}
+::highlight(${HIGHLIGHT_CURRENT}) {
+  background-color: rgba(249, 115, 22, 0.85);
+  color: #000;
+}
+`
 
-/**
- * Lightweight find-in-file. Computes hits on the raw text and, on
- * navigate, scrolls to the matching `[data-line="..."]` node Pierre emits on
- * each rendered line (verified in `@pierre/diffs/dist/utils/processLine.js`).
- *
- * DOM wrapping of matches with `<mark data-search-hit>` (plan §A.10) is
- * deferred — Pierre renders into a Shadow DOM and re-renders on scroll, so a
- * more invasive approach is needed. Line-level jump covers the 95% case.
- */
+interface Hit {
+  range: Range
+  lineNumber: number
+}
+
 export function FindInFileOverlay({
   contents,
   onClose,
+  scope,
 }: FindInFileOverlayProps) {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [useRegex, setUseRegex] = useState(false)
   const [index, setIndex] = useState(0)
+  const [domVersion, bumpDomVersion] = useReducerCounter()
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
+    inputRef.current?.select()
   }, [])
 
-  const { hits, error } = useMemo(() => {
-    if (query.length === 0) return { hits: [] as Hit[], error: null as string | null }
+  // Pierre renders into a shadow DOM and re-renders on option/file changes.
+  // Watch the content column so we can rebuild ranges when it gets replaced.
+  useEffect(() => {
+    const host = findPierreHost(scope)
+    const root = host?.shadowRoot
+    if (!root) return
+    ensureHighlightStyles(root)
+    const observer = new MutationObserver(() => bumpDomVersion())
+    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
+  }, [scope, bumpDomVersion])
+
+  const { hits, error } = useMemo<{ hits: Hit[]; error: string | null }>(() => {
+    if (query.length === 0) return { hits: [], error: null }
+    const host = findPierreHost(scope)
+    const content = host?.shadowRoot?.querySelector('[data-content]') as HTMLElement | null
+    if (!content) return { hits: [], error: null }
     try {
       const flags = (caseSensitive ? 'g' : 'gi') + 'u'
       const pattern = useRegex ? query : escapeRegExp(query)
       const re = new RegExp(pattern, flags)
-      const out: Hit[] = []
-      const lines = contents.split(/\r?\n/)
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]!
-        re.lastIndex = 0
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const m = re.exec(line)
-          if (!m) break
-          out.push({
-            lineIndex: i,
-            charStart: m.index,
-            charEnd: m.index + m[0].length,
-            snippet: line,
-          })
-          if (out.length >= MAX_HITS) break
-          // Protect against zero-length matches.
-          if (m.index === re.lastIndex) re.lastIndex++
-        }
-        if (out.length >= MAX_HITS) break
-      }
-      return { hits: out, error: null }
+      return { hits: collectHits(content, re), error: null }
     } catch (e: unknown) {
       return {
-        hits: [] as Hit[],
+        hits: [],
         error: e instanceof Error ? e.message : 'invalid pattern',
       }
     }
-  }, [query, contents, caseSensitive, useRegex])
+    // `contents` and `domVersion` force recomputation when the underlying
+    // text or Pierre's rendered DOM changes.
+  }, [query, caseSensitive, useRegex, scope, contents, domVersion])
 
   useEffect(() => {
-    setIndex(0)
-  }, [query, caseSensitive, useRegex])
+    if (index >= hits.length) setIndex(0)
+  }, [hits, index])
 
+  // Paint every hit; separately paint the current hit on top.
+  useEffect(() => {
+    const HighlightCtor = (globalThis as unknown as { Highlight?: typeof Highlight }).Highlight
+    const highlights = (CSS as unknown as { highlights?: HighlightRegistry }).highlights
+    if (!HighlightCtor || !highlights) return
+    if (hits.length === 0) {
+      highlights.delete(HIGHLIGHT_ALL)
+      highlights.delete(HIGHLIGHT_CURRENT)
+      return () => {
+        highlights.delete(HIGHLIGHT_ALL)
+        highlights.delete(HIGHLIGHT_CURRENT)
+      }
+    }
+    const all = new HighlightCtor(...hits.map((h) => h.range))
+    highlights.set(HIGHLIGHT_ALL, all)
+    const current = hits[index]
+    if (current) {
+      highlights.set(HIGHLIGHT_CURRENT, new HighlightCtor(current.range))
+    } else {
+      highlights.delete(HIGHLIGHT_CURRENT)
+    }
+    return () => {
+      highlights.delete(HIGHLIGHT_ALL)
+      highlights.delete(HIGHLIGHT_CURRENT)
+    }
+  }, [hits, index])
+
+  // Scroll the active match into view.
   useEffect(() => {
     const hit = hits[index]
     if (!hit) return
-    scrollToLine(hit.lineIndex + 1)
+    scrollRangeIntoView(hit.range)
   }, [index, hits])
 
   const go = (delta: number): void => {
@@ -186,23 +220,163 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function useReducerCounter(): [number, () => void] {
+  const [n, setN] = useState(0)
+  const bump = useRef(() => setN((v) => v + 1)).current
+  return [n, bump]
+}
+
+function findPierreHost(scope: HTMLElement | null | undefined): HTMLElement | null {
+  const root: ParentNode = scope ?? document
+  const el = root.querySelector('diffs-container') as HTMLElement | null
+  return el
+}
+
 /**
- * Pierre renders each code row with `data-line="<n>"` (1-based) on a nested
- * element inside its Shadow DOM. Scroll the first match we can find.
- * Falls back silently if the element isn't present (virtualized / off-screen).
+ * Inject the `::highlight(...)` rules into Pierre's shadow root so the CSS
+ * Custom Highlight API can paint on nodes inside the shadow tree.
  */
-function scrollToLine(lineNumber: number): void {
-  const hosts = document.querySelectorAll('pierre-file, pierre-file-diff')
-  for (const host of hosts) {
-    const root = (host as HTMLElement).shadowRoot
-    if (!root) continue
-    const el = root.querySelector(`[data-line="${lineNumber}"]`)
-    if (el) {
-      ;(el as HTMLElement).scrollIntoView({
-        block: 'center',
-        behavior: 'smooth',
-      })
-      return
+function ensureHighlightStyles(root: ShadowRoot): void {
+  type AdoptedShadow = ShadowRoot & {
+    adoptedStyleSheets: CSSStyleSheet[]
+    __kuroSearchStyles?: CSSStyleSheet
+  }
+  const r = root as AdoptedShadow
+  if (r.__kuroSearchStyles) return
+  const sheet = new CSSStyleSheet()
+  sheet.replaceSync(HIGHLIGHT_STYLES)
+  r.adoptedStyleSheets = [...r.adoptedStyleSheets, sheet]
+  r.__kuroSearchStyles = sheet
+}
+
+/**
+ * Walk line rows inside the content column, build ranges over text nodes for
+ * each regex match. Using TreeWalker on the line row handles shiki's nested
+ * spans transparently.
+ */
+function collectHits(content: HTMLElement, re: RegExp): Hit[] {
+  const hits: Hit[] = []
+  const lines = content.querySelectorAll<HTMLElement>('[data-line]')
+  for (const line of lines) {
+    const lineNumber = Number(line.dataset.line)
+    if (Number.isNaN(lineNumber)) continue
+
+    const segments = collectTextSegments(line)
+    const text = segments.map((s) => s.text).join('')
+    if (text.length === 0) continue
+
+    re.lastIndex = 0
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const m = re.exec(text)
+      if (!m) break
+      const start = m.index
+      const end = start + m[0].length
+      if (end > start) {
+        const range = rangeFromSegments(segments, start, end)
+        if (range) hits.push({ range, lineNumber })
+      }
+      if (hits.length >= MAX_HITS) return hits
+      // Guard against zero-length matches.
+      if (m.index === re.lastIndex) re.lastIndex++
     }
   }
+  return hits
+}
+
+interface TextSegment {
+  node: Text
+  start: number // offset within the concatenated line text
+  text: string
+}
+
+function collectTextSegments(line: HTMLElement): TextSegment[] {
+  const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT)
+  const out: TextSegment[] = []
+  let cursor = 0
+  let node = walker.nextNode() as Text | null
+  while (node) {
+    const text = node.data
+    out.push({ node, start: cursor, text })
+    cursor += text.length
+    node = walker.nextNode() as Text | null
+  }
+  // Pierre appends a trailing "\n" text node per line; strip it from match
+  // space so a ^$ regex doesn't get confused.
+  if (out.length > 0) {
+    const last = out[out.length - 1]!
+    if (last.text === '\n') out.pop()
+  }
+  return out
+}
+
+function rangeFromSegments(
+  segments: TextSegment[],
+  start: number,
+  end: number,
+): Range | null {
+  const startSeg = findSegment(segments, start)
+  const endSeg = findSegment(segments, end)
+  if (!startSeg || !endSeg) return null
+  const range = document.createRange()
+  range.setStart(startSeg.node, start - startSeg.start)
+  range.setEnd(endSeg.node, end - endSeg.start)
+  return range
+}
+
+function findSegment(segments: TextSegment[], offset: number): TextSegment | null {
+  // Inclusive on the right for the end position so offset === segment end works.
+  for (const seg of segments) {
+    if (offset >= seg.start && offset <= seg.start + seg.text.length) return seg
+  }
+  return segments[segments.length - 1] ?? null
+}
+
+/**
+ * Scroll the range into view. The range lives inside Pierre's shadow DOM —
+ * the scroll container is the nearest scrollable ancestor of the host element.
+ */
+function scrollRangeIntoView(range: Range): void {
+  const container = findScrollableAncestor(getHostElement(range.startContainer))
+  if (!container) return
+
+  const rangeRect = range.getBoundingClientRect()
+  if (rangeRect.width === 0 && rangeRect.height === 0) return
+  const containerRect = container.getBoundingClientRect()
+  const targetTop =
+    container.scrollTop +
+    (rangeRect.top - containerRect.top) -
+    container.clientHeight / 2 +
+    rangeRect.height / 2
+  const targetLeft =
+    container.scrollLeft +
+    (rangeRect.left - containerRect.left) -
+    container.clientWidth / 2 +
+    rangeRect.width / 2
+  container.scrollTo({
+    top: Math.max(0, targetTop),
+    left: Math.max(0, targetLeft),
+    behavior: 'smooth',
+  })
+}
+
+function getHostElement(node: Node): HTMLElement | null {
+  let root: Node | null = node
+  while (root) {
+    if (root instanceof ShadowRoot) return root.host as HTMLElement
+    root = root.parentNode ?? (root as { host?: Node }).host ?? null
+  }
+  return node instanceof HTMLElement ? node : null
+}
+
+function findScrollableAncestor(el: HTMLElement | null): HTMLElement | null {
+  let cur: HTMLElement | null = el
+  while (cur && cur !== document.body) {
+    const style = getComputedStyle(cur)
+    const canScroll =
+      /(auto|scroll|overlay)/.test(style.overflowY) && cur.scrollHeight > cur.clientHeight
+    if (canScroll) return cur
+    cur = cur.parentElement
+  }
+  return document.scrollingElement as HTMLElement | null
 }

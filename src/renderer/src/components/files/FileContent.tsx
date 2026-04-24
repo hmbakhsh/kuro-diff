@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { File as PierreFile } from '@pierre/diffs/react'
 import type { FileContents } from '@pierre/diffs'
 import { trpc } from '@renderer/trpc'
@@ -15,6 +15,7 @@ interface FileContentProps {
 export function FileContent({ repoId, path, className }: FileContentProps) {
   const [force, setForce] = useState(false)
   const [showFind, setShowFind] = useState(false)
+  const viewerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     setForce(false)
     setShowFind(false)
@@ -142,7 +143,7 @@ export function FileContent({ repoId, path, className }: FileContentProps) {
   }
 
   return (
-    <div className={cn('relative h-full overflow-auto', className)}>
+    <div ref={viewerRef} className={cn('relative h-full overflow-auto', className)}>
       {pierreFile && (
         <PierreFile
           file={pierreFile}
@@ -154,6 +155,7 @@ export function FileContent({ repoId, path, className }: FileContentProps) {
         <FindInFileOverlay
           contents={data.contents}
           onClose={() => setShowFind(false)}
+          scope={viewerRef.current}
         />
       )}
     </div>
