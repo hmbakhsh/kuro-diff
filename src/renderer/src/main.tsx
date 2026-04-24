@@ -11,6 +11,7 @@ import { trpc } from './trpc'
 import { routeTree } from './routeTree.gen'
 import { primeHighlighter } from './lib/highlighter'
 import { workerPoolConfig } from './lib/worker-pool'
+import { ThemeRoot } from './components/layout/ThemeSync'
 import './styles/globals.css'
 
 // Warm Pierre's Shiki singleton. Fire-and-forget — the File component will
@@ -108,8 +109,10 @@ ReactDOM.createRoot(rootEl).render(
         poolOptions={workerPoolConfig.poolOptions}
         highlighterOptions={workerPoolConfig.highlighterOptions}
       >
-        <RouterProvider router={router} />
-        <Toaster position="bottom-right" richColors closeButton />
+        <ThemeRoot>
+          <RouterProvider router={router} />
+          <Toaster position="bottom-right" richColors closeButton />
+        </ThemeRoot>
       </WorkerPoolContextProvider>
     </PersistQueryClientProvider>
   </trpc.Provider>,

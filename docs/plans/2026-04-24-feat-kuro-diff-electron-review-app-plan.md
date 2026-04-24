@@ -16,7 +16,7 @@ The app ships as a notarized `.dmg` with auto-update via GitHub Releases. No edi
 
 ## Implementation Progress & Handoff Notes
 
-**Last updated:** 2026-04-24. **Phases 1–5 shipped; Phases 6–7 pending.** Read this whole section before making assumptions about the state of the tree — several plan details were changed during implementation.
+**Last updated:** 2026-04-24. **Phases 1–6 shipped; Phase 7 pending.** Read this whole section before making assumptions about the state of the tree — several plan details were changed during implementation.
 
 ### Phases shipped
 
@@ -81,7 +81,7 @@ Do not "fix" these back to the plan text without understanding why they changed:
 - Find-in-file (Cmd+F) overlay ✅
 - Diff viewer with base/head picker + unified/split toggle ✅
 - `gh auth status` integration + PR list + PR detail diff ✅
-- Copy-for-agent, command menu (Cmd+P) still pending (Phase 6)
+- Copy-for-agent (Cmd+Shift+C) + command menu (Cmd+P) shipped ✅ (Phase 6)
 
 **Quality Gates:**
 - Every tRPC procedure has zod input schema ✅
@@ -600,11 +600,11 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 - [x] Diff viewer supports working-tree and commit-range diffs via one component (PR path ships in Phase 5)
 - [x] Base/head picker typeahead-searches local branches, tags, and `origin/*` remotes
 - [x] Unified/split toggle persists globally
-- [ ] `Cmd+Shift+C` copies selection in the documented format to the system clipboard
+- [x] `Cmd+Shift+C` copies selection in the documented format to the system clipboard
 - [x] `gh auth status` integration surfaces logged-in/logged-out state; PR features gated on a successful status check; sign-in flow points the user to `gh auth login` in their terminal
 - [x] PR list supports state, author, label, and title filters
 - [x] PR detail shows diff using `@pierre/diffs`
-- [ ] `Cmd+P` command menu searches files in the current repo
+- [x] `Cmd+P` command menu searches files in the current repo
 - [ ] All critical paths keyboard-accessible with visible focus rings
 
 ### Non-Functional Requirements

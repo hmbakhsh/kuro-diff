@@ -4,6 +4,10 @@ import type { FileContents } from '@pierre/diffs'
 import { trpc } from '@renderer/trpc'
 import { cn } from '@renderer/lib/cn'
 import { ensureLangLoaded } from '@renderer/lib/highlighter'
+import {
+  useRegisterCapture,
+  type CaptureTarget,
+} from '@renderer/lib/capture-context'
 import { FindInFileOverlay } from './FindInFileOverlay'
 
 interface FileContentProps {
@@ -69,6 +73,29 @@ export function FileContent({
       cacheKey: `${path}@${query.data.size}`,
     }
   }, [query.data, path])
+
+  // Surface what the user is viewing to the capture context so Cmd+Shift+C
+  // can read file metadata without prop-drilling. Only registers for text
+  // files — binary/image/too-large views have no copy-for-agent value.
+  const repoName = useRepoName(repoId)
+  const worktreeMeta = useWorktreeMeta(repoId, worktreeId)
+  const captureTarget = useMemo<CaptureTarget | null>(() => {
+    if (!path) return null
+    if (!query.data || query.data.kind !== 'text') return null
+    return {
+      repoId,
+      repoName,
+      worktreeId: worktreeId ?? null,
+      relativePath: path,
+      contents: query.data.contents,
+      sha: worktreeMeta.sha,
+      branch: worktreeMeta.branch,
+      language: query.data.lang,
+      lineCount: countLines(query.data.contents),
+      diff: null,
+    }
+  }, [path, query.data, repoId, repoName, worktreeId, worktreeMeta])
+  useRegisterCapture(captureTarget)
 
   if (!path) {
     return (
@@ -179,4 +206,32 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / 1024 / 1024).toFixed(2)} MB`
+}
+
+function countLines(s: string): number {
+  if (s.length === 0) return 0
+  let n = 1
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++
+  return n
+}
+
+function useRepoName(repoId: string): string {
+  const repos = trpc.workspace.list.useQuery(undefined, { staleTime: 60_000 })
+  return repos.data?.find((r) => r.id === repoId)?.name ?? ''
+}
+
+function useWorktreeMeta(
+  repoId: string,
+  worktreeId: string | undefined,
+): { sha: string | null; branch: string | null } {
+  const query = trpc.workspace.listWorktrees.useQuery(
+    { repoId },
+    { staleTime: 30_000 },
+  )
+  const worktree = query.data?.find((w) => w.id === worktreeId)
+  if (!worktree) return { sha: null, branch: null }
+  return {
+    sha: worktree.head ? worktree.head.slice(0, 7) : null,
+    branch: worktree.branch?.replace('refs/heads/', '') ?? null,
+  }
 }

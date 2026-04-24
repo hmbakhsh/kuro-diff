@@ -1,6 +1,7 @@
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
+import { getWindowState, setWindowState } from './services/workspace-store.js'
 
 const ALLOWED_EXTERNAL_HOSTS = new Set([
   'github.com',
@@ -9,10 +10,52 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
   'cli.github.com',
 ])
 
-export function createMainWindow(): BrowserWindow {
+/**
+ * Load persisted bounds, but reject them if the display they targeted is
+ * gone (e.g. external monitor unplugged). `screen.getDisplayMatching` picks
+ * whichever current display has the most overlap with the saved rectangle.
+ */
+async function resolveInitialBounds(): Promise<{
+  x?: number
+  y?: number
+  width: number
+  height: number
+  maximized: boolean
+}> {
+  const state = await getWindowState()
+  const fallback = { width: 1440, height: 900, maximized: false }
+  const saved = state.bounds
+  if (!saved) return fallback
+
+  const rect = {
+    x: saved.x ?? 0,
+    y: saved.y ?? 0,
+    width: saved.width,
+    height: saved.height,
+  }
+  const display = screen.getDisplayMatching(rect)
+  const within =
+    rect.x >= display.workArea.x &&
+    rect.y >= display.workArea.y &&
+    rect.x + rect.width <= display.workArea.x + display.workArea.width &&
+    rect.y + rect.height <= display.workArea.y + display.workArea.height
+  if (!within) return fallback
+  return {
+    x: saved.x,
+    y: saved.y,
+    width: saved.width,
+    height: saved.height,
+    maximized: !!state.maximized,
+  }
+}
+
+export async function createMainWindow(): Promise<BrowserWindow> {
+  const initial = await resolveInitialBounds()
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    x: initial.x,
+    y: initial.y,
+    width: initial.width,
+    height: initial.height,
     minWidth: 960,
     minHeight: 600,
     show: false,
@@ -31,8 +74,39 @@ export function createMainWindow(): BrowserWindow {
     },
   })
 
+  if (initial.maximized) win.maximize()
+
   win.on('ready-to-show', () => {
     win.show()
+  })
+
+  // Debounced bounds persistence. Electron fires resize/move continuously
+  // during drags, so we throttle and only capture the final state via a
+  // trailing timer. `getNormalBounds` returns the pre-maximize rectangle,
+  // which is what we want to restore next launch.
+  let persistTimer: NodeJS.Timeout | null = null
+  const persistBounds = (): void => {
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      if (win.isDestroyed()) return
+      const bounds = win.getNormalBounds()
+      void setWindowState({
+        bounds,
+        maximized: win.isMaximized(),
+      })
+    }, 300)
+  }
+  win.on('resize', persistBounds)
+  win.on('move', persistBounds)
+  win.on('maximize', persistBounds)
+  win.on('unmaximize', persistBounds)
+  win.on('close', () => {
+    if (persistTimer) clearTimeout(persistTimer)
+    if (win.isDestroyed()) return
+    void setWindowState({
+      bounds: win.getNormalBounds(),
+      maximized: win.isMaximized(),
+    })
   })
 
   // Zoom shortcuts — bound at the webContents layer instead of via menu

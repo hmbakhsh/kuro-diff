@@ -126,6 +126,18 @@ export async function setGitBinaryPath(path: string): Promise<void> {
   ;(await load()).set('gitBinaryPath', path)
 }
 
+export async function getWindowState(): Promise<StoreSchema['window']> {
+  return (await load()).get('window') ?? {}
+}
+
+export async function setWindowState(
+  patch: Partial<StoreSchema['window']>,
+): Promise<void> {
+  const store = await load()
+  const current = store.get('window') ?? {}
+  store.set('window', { ...current, ...patch })
+}
+
 export async function storePath(): Promise<string> {
   return (await load()).path
 }

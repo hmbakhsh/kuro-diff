@@ -18,6 +18,10 @@ function Settings() {
     enabled: auth.data?.authenticated ?? false,
   })
   const openExternal = trpc.github.openExternal.useMutation()
+  const prefs = trpc.preferences.get.useQuery(undefined, { staleTime: 60_000 })
+  const setPrefs = trpc.preferences.set.useMutation({
+    onSuccess: (next) => utils.preferences.get.setData(undefined, next),
+  })
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
@@ -28,6 +32,62 @@ function Settings() {
             Local preferences and integration state.
           </p>
         </header>
+
+        <section className="space-y-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            Appearance
+          </h2>
+          <div
+            className={cn(
+              'space-y-4 rounded-lg border border-black/10 bg-white/40 p-4',
+              'dark:border-white/10 dark:bg-white/5',
+            )}
+          >
+            <Segmented
+              label="Theme"
+              value={prefs.data?.theme ?? 'system'}
+              options={[
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+                { value: 'system', label: 'System' },
+              ]}
+              onChange={(v) =>
+                setPrefs.mutate({ theme: v as 'light' | 'dark' | 'system' })
+              }
+            />
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            Copy for Agent
+          </h2>
+          <div
+            className={cn(
+              'space-y-4 rounded-lg border border-black/10 bg-white/40 p-4',
+              'dark:border-white/10 dark:bg-white/5',
+            )}
+          >
+            <Segmented
+              label="Format"
+              value={prefs.data?.copyPreset ?? 'markdown-fence'}
+              options={[
+                { value: 'markdown-fence', label: 'Markdown fence' },
+                { value: 'claude-xml', label: 'Claude XML' },
+              ]}
+              onChange={(v) =>
+                setPrefs.mutate({
+                  copyPreset: v as 'markdown-fence' | 'claude-xml',
+                })
+              }
+            />
+            <p className="text-[11px] text-zinc-500">
+              Markdown fence works everywhere (Claude, Cursor, Codex). Claude
+              XML is Anthropic's documented preferred form for long-context
+              prompts.
+            </p>
+          </div>
+        </section>
 
         <section className="space-y-3">
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -145,6 +205,52 @@ function CommandBlock({ command }: { command: string }) {
       >
         <Copy className="size-3.5" strokeWidth={2} />
       </button>
+    </div>
+  )
+}
+
+interface SegmentedProps<T extends string> {
+  label: string
+  value: T
+  options: ReadonlyArray<{ value: T; label: string }>
+  onChange(value: T): void
+}
+
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: SegmentedProps<T>) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-sm">{label}</span>
+      <div
+        className="inline-flex overflow-hidden rounded-md border border-black/10 dark:border-white/10"
+        role="radiogroup"
+        aria-label={label}
+      >
+        {options.map((opt) => {
+          const active = opt.value === value
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                'h-7 px-3 text-xs transition-colors',
+                active
+                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
+                  : 'text-zinc-600 hover:bg-black/5 dark:text-zinc-300 dark:hover:bg-white/10',
+              )}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

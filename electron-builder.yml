@@ -1,5 +1,5 @@
 appId: com.kuro.diff
-productName: kuro-diff
+productName: Kuro
 directories:
   buildResources: build
   output: release
@@ -15,6 +15,7 @@ asarUnpack:
 afterPack: build/afterPack.cjs
 mac:
   category: public.app-category.developer-tools
+  icon: build/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
