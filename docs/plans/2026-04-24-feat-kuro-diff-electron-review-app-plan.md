@@ -58,7 +58,7 @@ Do not "fix" these back to the plan text without understanding why they changed:
 - **Phase 3 first move:** verify `@pierre/file-tree`'s React wrapper actually mounts in an Electron renderer. It's Preact 11 beta inside a Shadow DOM — there's a real chance of hydration issues the plan flags as the largest risk. If it breaks, the fallback is `@headless-tree/react` directly (Appendix A.8 + risk table). Do this spike before building the split-pane file viewer, not after.
 - **Phase 3 Shiki singleton:** do NOT call `createHighlighter`/`createHighlighterCore` from our own code. Use Pierre's `preloadHighlighter`/`getSharedHighlighter` from `@pierre/diffs`. This is called out in the plan but worth restating — it's the single easiest mistake to make.
 - **Phase 4 worker pool:** if electron-vite can't resolve `@pierre/diffs/worker/worker.js` via `new URL(..., import.meta.url)`, try `worker-portable.js` first. If both fail under the current CSP, `disableWorkerPool` per-component is an acceptable MVP fallback up to ~1–2k diff lines.
-- **Phase 5 auth:** read the plan's call-out about GitHub App vs OAuth App. The decision is GitHub App + Device Flow. The `clientId` goes in the repo; no secret.
+- **Phase 5 auth:** the decision is to wrap the `gh` CLI rather than implement Device Flow + Octokit + safeStorage in-app. See "Phase 5" and the "In-app Octokit + Device Flow vs. shelling out to `gh` CLI" entry under Alternatives Considered. No client ID, no secret, no in-app sign-in modal. Sign-in is "run `gh auth login` in your terminal."
 - **Empty-state messaging:** the current sidebar says "Drop a repo folder here, or click below." That's placeholder copy — leave it through Phase 6 when the designer pass happens (decision #15 in "Decisions Resolved").
 - **Smoke-test pattern for integration checks** (optional but worth knowing): build with `pnpm run build`, run Electron with `--remote-debugging-port=9223`, use a small `ws`-based CDP client to call `Runtime.evaluate` on the renderer. The `window.electronTRPC` bridge is the direct raw channel; React Query cache is easier to inspect through the rendered DOM.
 - **Do not commit `src/renderer/src/routeTree.gen.ts`** — it's generated and gitignored.
@@ -142,8 +142,8 @@ The app is strictly read-only to disk: no edits, no `git write` commands, no mut
 │                   MAIN PROCESS (Node)                        │
 │                                                              │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐   │
-│  │   git    │  │ octokit  │  │safeStore │  │  windows   │   │
-│  │ service  │  │ service  │  │ tokens   │  │  menu      │   │
+│  │   git    │  │   gh     │  │workspace │  │  windows   │   │
+│  │   CLI    │  │   CLI    │  │  store   │  │  menu      │   │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────┬─────┘   │
 │       └─────────────┴─────────────┴────────────────┘        │
 │                     │                                        │
@@ -169,7 +169,7 @@ The app is strictly read-only to disk: no edits, no `git write` commands, no mut
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- **Main process** owns: `git` subprocesses, Octokit client, safeStorage for tokens, filesystem watchers (`chokidar`) for repo state invalidation, app lifecycle/windows/menu.
+- **Main process** owns: `git` and `gh` subprocesses, `electron-store` workspace persistence, filesystem watchers (`chokidar`) for repo state invalidation, app lifecycle/windows/menu. No auth secrets live in the app — `gh` owns Keychain credentials.
 - **Renderer process** is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and talks to main only through a typed tRPC bridge.
 - **Preload** exposes a single `window.trpc` surface via `contextBridge` — nothing else. All IPC flows through one channel.
 
@@ -201,18 +201,17 @@ kuro-diff/
 │   │   │       ├── workspace.ts        # add-repo, remove-repo, list-repos, list-worktrees
 │   │   │       ├── fs.ts               # read-file, list-tree
 │   │   │       ├── git.ts              # diff, log, status, branches, refs
-│   │   │       ├── github.ts           # auth, prs.list, prs.get, prs.diff
+│   │   │       ├── github.ts           # auth.status, prs.list, prs.get, prs.diff (gh CLI wrappers)
 │   │   │       └── clipboard.ts        # copy-for-agent
 │   │   ├── services/
 │   │   │   ├── git-service.ts          # simple-git wrapper + spawn for large diffs
 │   │   │   ├── git-binary.ts           # resolve git path via login shell (PATH fix)
 │   │   │   ├── worktree.ts             # parse --porcelain -z
-│   │   │   ├── github-service.ts       # octokit wrapper
-│   │   │   ├── github-auth.ts          # device flow + safeStorage token persistence
+│   │   │   ├── gh-service.ts           # spawn('gh', ...), JSON parse, typed-error mapping
+│   │   │   ├── gh-binary.ts            # resolve gh path the same way git-binary.ts resolves git
 │   │   │   ├── workspace-store.ts      # persisted list of repos (electron-store or JSON)
 │   │   │   └── fs-watcher.ts           # chokidar over .git/HEAD and refs/
 │   │   └── util/
-│   │       ├── safe-storage.ts         # encrypt/decrypt wrappers
 │   │       └── child-process.ts        # spawn helpers (streaming, timeouts, GIT_OPTIONAL_LOCKS=0)
 │   ├── preload/
 │   │   └── index.ts                    # contextBridge + exposeElectronTRPC
@@ -283,7 +282,7 @@ Tasks:
 - Apply hardened security baseline in `src/main/index.ts`:
   - `BrowserWindow` opts: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true`
   - CSP via `session.defaultSession.webRequest.onHeadersReceived` — **call inside `app.whenReady()`**, not before (pre-ready crash, electron/electron#42000)
-  - Header value — `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self' https://api.github.com; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`. In dev, also allow `ws:` in `connect-src` and `'unsafe-eval'` in `script-src` for HMR (gate on `is.dev`).
+  - Header value — `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`. `connect-src` is `'self'` only — all GitHub HTTP traffic happens out-of-process via `gh`. `img-src` keeps `avatars.githubusercontent.com` for PR author avatars (rendered from URLs in `gh pr list` JSON). In dev, also allow `ws:` in `connect-src` and `'unsafe-eval'` in `script-src` for HMR (gate on `is.dev`).
   - `will-navigate` → `e.preventDefault()` for non-app origins; `setWindowOpenHandler` → return `{ action: 'deny' }` and conditionally `shell.openExternal(url)` for allowlisted hosts.
 - Enable Electron Fuses (`@electron/fuses` with `FuseVersion.V1`, flipped via `afterPack` hook). Set:
   - `RunAsNode: false`, `EnableNodeOptionsEnvironmentVariable: false`, `EnableNodeCliInspectArguments: false`
@@ -363,32 +362,35 @@ Tasks:
 
 **Exit:** user can view any diff (working-tree, commit range, branch-vs-branch) with Pierre's styling.
 
-#### Phase 5 — GitHub Auth & PR Browser (Days 16–20)
+#### Phase 5 — GitHub PR Browser via `gh` CLI (Days 16–20)
 
-**Auth app type decision**: use a **GitHub App** (not an OAuth App) despite the added UX step. GitHub Apps issue 8-hour user tokens + 6-month rotating refresh tokens; OAuth App tokens are non-expiring and don't rotate. Rotation matches 2026 security norms and GitHub's own recommendation. Client ID committed to repo; no client secret used in Device Flow.
+**Auth decision**: wrap the `gh` CLI rather than implementing Device Flow + Octokit + safeStorage ourselves. `gh` already owns token acquisition, Keychain storage, refresh rotation, multi-account (`gh auth switch`), GHE host config, ETag-conditional requests, and rate-limit retries. We shell out to `gh` the same way we shell out to `git`. Tradeoff: adds `gh` to the install prereqs — acceptable for the target audience (agent-loop power users who already have it).
 
 Tasks:
-- **`github-auth.ts`** — `@octokit/auth-oauth-device` v8.x, ESM-only, Node ≥ 20.
-  - `createOAuthDeviceAuth({ clientType: 'github-app', clientId, scopes: ['repo', 'read:user'], onVerification })`
-  - `onVerification(v)` fires exactly once with `{ device_code, user_code, verification_uri, expires_in, interval }`. Render modal from this callback: show `user_code`, call `shell.openExternal(verification_uri)`, start a countdown from `expires_in`. Polling happens internally at `interval` seconds.
-  - `auth({ type: 'oauth', request: { signal: abortController.signal } })` resolves to `{ token, scopes }` when the user completes verification. Wire `AbortSignal` to the window close handler + a "Cancel" button.
-  - Error mapping: `RequestError` `data.error === 'access_denied'` → user denied; `'expired_token'` → timeout; `FetchError` → network.
-- **Token storage & lifecycle**:
-  - Persist token via `safeStorage.encryptStringAsync` to `app.getPath('userData')/gh-account-<login>.enc`. Hard-fail if `safeStorage.isEncryptionAvailable()` is false; no plaintext fallback, ever.
-  - **Multi-account-ready schema from day 1** (even for single-account MVP): `accounts: { [login]: { token, refreshToken, expiresAt, host } }`, `currentAccountId: string`. Migration later is renderer-only.
-  - Revocation: attach an Octokit response interceptor that traps 401 `"Bad credentials"` and dispatches a `token-invalid` event via tRPC subscription → re-run device flow on next interaction.
-  - Refresh: GitHub App refresh tokens rotate — always store the latest; on 401 with `expiresAt < now`, exchange refresh token automatically before re-prompting.
-- **Octokit client** — umbrella `octokit@^4.0` (throttling + pagination + retry bundled).
-  - Throttling config: `onRateLimit: (retryAfter, opts, ok, retryCount) => retryCount < 2`, `onSecondaryRateLimit: (retryAfter, opts, ok, retryCount) => retryCount < 1`, `fallbackSecondaryRateRetryAfter: 60`.
-  - ETag persistence: sqlite table keyed by canonicalized URL, store ETag + last response. On cached endpoints, send `If-None-Match`; a 304 does **not** count against rate limit quota.
-- **Repo-to-GitHub mapping** — use `hosted-git-info@^7` (not custom regex). Iterate all remotes (`git remote -v`), prefer `origin` → `upstream` → first GitHub-host remote. Handle: `https://github.com/o/r`, `https://github.com/o/r.git`, `https://github.com/o/r/`, `git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `git://`. Detect `*.ghe.com` (GitHub Enterprise) and show "GHE not yet supported" toast; keep `host` field in the parsed object so future GHE support is additive.
-- **`PRList.tsx`** — paginated via `octokit.paginate.iterator(octokit.rest.pulls.list, { owner, repo, state, per_page: 100 })`. Filters: state (open/closed/merged/all), author (typeahead), label, title substring. TanStack Query: `staleTime: 60_000`, `refetchOnWindowFocus: true` (per-query opt-in; global default is `false`).
-- **`PRDetail.tsx`** — metadata via `octokit.rest.pulls.get({ owner, repo, pull_number })`, diff via a second call with `mediaType: { format: 'diff' }` returning a unified-diff string. Pass string to `<PatchDiff patch={...} />`. TanStack Query: `staleTime: 300_000` (PR details change slowly and ETag handles freshness).
-- **Rate-limit UI** — pill in titlebar showing remaining quota. `staleTime: 30_000` on the rate-limit query. Banner when limit reached with "Retry in Xm" from `X-RateLimit-Reset`.
-- **Offline mode** — if `fetch` fails or `navigator.onLine === false`, render cached data with a banner; disable refresh.
-- **TanStack Query global defaults**: `{ staleTime: 60_000, gcTime: 5 * 60_000, retry: 2, refetchOnWindowFocus: false }`. Per-query overrides above.
+- **`gh-binary.ts`** — resolve `gh` path the same way `git-binary.ts` resolves `git`. `which gh` via the `shell-env`-merged `PATH`, cached in `electron-store`. Pass `env: { ...process.env, NO_COLOR: '1', GH_PROMPT_DISABLED: '1' }` on every spawn so output is clean and never blocks on a TTY prompt. Surface a setup modal if missing: "GitHub CLI not found. Install with `brew install gh`." with a copy button.
+- **`gh-service.ts`** — thin wrapper around `child_process.spawn('gh', args)` reusing `util/child-process.ts` (30s timeout, streaming, abortable). One helper: `gh<T>(args: string[], opts?: { json?: true }): Promise<T | string>`. Map non-zero exit codes to a small typed-error set:
+  - exit 4 → `GhRateLimited` (gh's documented exit code for API rate limit)
+  - stderr matches `not authenticated|gh auth login` → `GhUnauthenticated`
+  - stderr matches `Could not resolve|dial tcp|network is unreachable` → `GhNetworkError`
+  - stderr matches `Could not resolve to a Repository|HTTP 404` → `GhNotFound`
+  - any other non-zero → `GhCommandError` carrying a stderr excerpt
+- **Auth status UI**:
+  - `gh auth status --hostname github.com` (parse plain text — `--json` was added in 2.65; we tolerate older). Settings page shows ✓ logged in as `<login>` / ✗ not logged in.
+  - Sign-in is **not** run from the app. Button opens `shell.openExternal('https://cli.github.com/manual/gh_auth_login')` and the page reads: "Run `gh auth login` in your terminal, then click Refresh." Rationale: `gh auth login` is interactive, Keychain-bound, and writes credentials owned by the user's shell session — running it from a sandboxed child process produces a worse UX than punting to the terminal.
+  - "Refresh" re-runs `gh auth status` and invalidates the auth query.
+- **Repo-to-GitHub mapping** — `hosted-git-info@^7` (not custom regex). Iterate `git remote -v`, prefer `origin` → `upstream` → first GitHub-host remote. Handle `https://github.com/o/r[.git][/]`, `git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `git://`. Detect `*.ghe.com` (GitHub Enterprise) → toast "GHE not yet supported" and disable PR features for that repo (`gh` would actually work with `--hostname`, but defer GHE polish to post-MVP).
+- **`PRList.tsx`** — `gh pr list --repo <owner>/<repo> --state <state> --limit 100 --json number,title,author,labels,state,isDraft,createdAt,updatedAt,headRefName,baseRefName,url`. Filters happen server-side via flags: `--state open|closed|merged|all`, `--author`, `--label`, `--search "<substring> in:title"` (GitHub search syntax). TanStack Query: `staleTime: 60_000`, `refetchOnWindowFocus: true` (per-query opt-in; global default is `false`). 100 is the MVP cap; if a real workflow blows past it, add `--limit 500` then revisit pagination.
+- **`PRDetail.tsx`** — two parallel `gh` spawns:
+  - `gh pr view <num> --repo <owner>/<repo> --json number,title,body,author,state,mergeable,additions,deletions,baseRefName,headRefName,headRefOid,labels,url` → metadata.
+  - `gh pr diff <num> --repo <owner>/<repo>` → unified diff string passed straight to `<PatchDiff patch={...} />`.
+  - TanStack Query: `staleTime: 300_000`. PR details change slowly; user can pull-to-refresh.
+- **Rate-limit UI** — `gh api rate_limit --jq .resources.core` polled at most once per minute (only after a successful auth check). Pill in titlebar shows remaining quota; banner when exhausted with reset time. On `GhRateLimited` from any other call, mark the pill red until the next poll succeeds.
+- **Offline mode** — `GhNetworkError` or `navigator.onLine === false` → render cached data with a banner; disable refresh.
+- **TanStack Query global defaults**: `{ staleTime: 60_000, gcTime: 5 * 60_000, retry: 2, refetchOnWindowFocus: false }`. Per-query overrides above. We do **not** retry `GhUnauthenticated` or `GhNotFound`.
 
-**Exit:** user can sign in with GitHub, browse PRs for any added repo that has a GitHub origin, read diffs.
+**Subprocess hygiene** — every `gh` spawn goes through `util/child-process.ts`: 30s timeout, streaming stdout, killed on abort, `GIT_OPTIONAL_LOCKS=0` carried over (irrelevant for `gh` but consistent).
+
+**Exit:** with `gh auth status` ✓, user can browse PRs for any added repo with a GitHub origin and read diffs through the same `<PatchDiff>` component used elsewhere.
 
 #### Phase 6 — Copy-for-Agent, Command Menu, Polish (Days 21–24)
 
@@ -481,7 +483,7 @@ Tasks:
 - **Hand-rolled `contextBridge` + zod for IPC instead of tRPC.** Rejected: once you're past ~10 procedures, the tRPC end-to-end types + TanStack Query integration is worth the dependency.
 - **Monaco Editor for file viewing.** Rejected: Shiki + `@pierre/file-tree` is the cohesive design language the brainstorm chose; Monaco would visually clash and add ~3MB bundle weight we don't need.
 - **Browser history vs. hash history.** `createBrowserHistory` and `createMemoryHistory` break on `file://` in packaged builds; `createHashHistory` is mandatory.
-- **OAuth App vs. GitHub App.** GitHub App has finer-grained permissions and higher rate limits but requires per-install approval UX that's overkill for a single-user read-only desktop tool. OAuth App + Device Flow is the documented standard for OSS desktop apps.
+- **In-app Octokit + Device Flow vs. shelling out to `gh` CLI.** Rejected the in-app path. `gh` already does Device Flow, Keychain storage, refresh rotation, multi-account, ETag caching, throttling, and GHE host config — all things we'd otherwise reimplement and maintain. The MVP audience already has `gh` installed; for them, this is a strictly subtractive decision. Tradeoffs we accept: (a) hard dep on `gh ≥ 2.40` in install docs, (b) ~50–100 ms spawn latency per call (invisible for a list-once / view-one-PR workflow), (c) sign-in is "run `gh auth login` in your terminal" rather than an in-app modal. Revisit Octokit only if we need webhook subscriptions, GitHub App installs, or per-org install flows — none of which are MVP scope.
 
 ## System-Wide Impact
 
@@ -493,10 +495,9 @@ User clicks a PR in the list:
 PRList.tsx
   → trpc.github.prs.get.useSuspenseQuery({ owner, repo, number })
     → ipcLink → main → github procedure
-      → github-service.octokit.rest.pulls.get({ mediaType: { format: 'diff' }})
-        → HTTP to api.github.com (ETag-conditional)
-          → 200 OK (patch text) / 304 Not Modified (use cache)
-        → on 403 rate-limit: throttling plugin retries + surfaces to UI
+      → gh-service.spawn(['pr', 'diff', String(number), '--repo', `${owner}/${repo}`])
+        → gh authenticates from Keychain, hits api.github.com (ETag cache lives inside gh)
+        → unified diff on stdout, exit 0 / exit 4 → GhRateLimited / stderr-mapped errors otherwise
       ← returns patch string
     ← tRPC response
   → react-query caches under ['github','pr',owner,repo,number]
@@ -539,22 +540,21 @@ window drop event → WorkspaceSidebar.onDrop
 |---|---|---|
 | `child_process.spawn('git')` | `ENOENT` | GitBinaryNotFoundError → modal "Git not found. Install via Homebrew or Xcode Tools." |
 | `git` subprocess non-zero exit | `GitCommandError` with stderr | tRPC error → query errorBoundary → inline banner with stderr excerpt |
-| `safeStorage.isEncryptionAvailable() === false` | `KeychainUnavailable` | Settings page shows "macOS Keychain unavailable. GitHub auth disabled." |
-| Octokit 401 (bad token) | `AuthError` | Settings page prompts re-auth |
-| Octokit 403 rate-limit | throttling plugin retries up to 3× then throws | titlebar pill goes red, PR list shows "Rate limited. Retry in Xm." |
-| Octokit 404 (deleted repo) | `NotFound` | "Repository no longer exists on GitHub" inline |
-| Network offline (`fetch` throws) | `NetworkError` | Global banner "Offline — showing cached data" |
+| `which gh` returns nothing | `GhBinaryNotFoundError` | Settings page shows "GitHub CLI not found. `brew install gh`." with copy button; PR features disabled |
+| `gh` stderr matches `not authenticated` | `GhUnauthenticated` | Settings page shows "Run `gh auth login` in your terminal, then click Refresh." |
+| `gh` exit code 4 | `GhRateLimited` | Titlebar pill goes red; PR list shows "Rate limited. Retry in Xm." (reset time from rate_limit poll) |
+| `gh` stderr matches `Could not resolve to a Repository` / `HTTP 404` | `GhNotFound` | "Repository no longer exists on GitHub" inline |
+| `gh` stderr matches `Could not resolve` / `dial tcp` / offline (`navigator.onLine`) | `GhNetworkError` | Global banner "Offline — showing cached data" |
 | File > 2MB | no throw — gated by UI prompt | "Load anyway?" dialog |
 | Binary file | detected in main, returned as `{ kind: 'binary', size }` | placeholder view |
 | Pierre component crash | React error boundary per pane | fallback "Failed to render diff" + copy-patch button (so user can still copy for agent) |
 
-Retry strategy: Octokit throttling plugin is authoritative; we do NOT wrap it in TanStack Query retries (would conflict — already saw this pattern bite in `docs/solutions/` absence; design defensively from day 1).
+Retry strategy: `gh` already retries internally on transient failures and emits exit code 4 on hard rate limit. TanStack Query `retry: 2` covers truly transient `GhCommandError`s; we explicitly skip retry on `GhUnauthenticated`, `GhNotFound`, and `GhRateLimited` (the rate-limit poller, not the call retry, is what tells the user when to try again).
 
 ### State Lifecycle Risks
 
 - **Partial `addRepo`**: if chokidar watcher registration fails after workspace.json write, repo exists in store but has no fs-watcher → stale worktree data. Mitigation: atomic transaction — register watcher first, then persist; on watcher failure, don't persist.
-- **Orphaned tokens**: if user removes last repo, GitHub token still sits in safeStorage. Mitigation: leave it (they may re-add a repo); expose "Sign out of GitHub" in settings.
-- **Stale ETag cache**: if ETag store drifts from actual API state (e.g., cache mutated externally), 304s return stale data. Mitigation: ETags are per-endpoint and invalidated naturally by state changes; also `refetchOnWindowFocus` eventually corrects.
+- **Auth state drift**: user runs `gh auth logout` (or token gets revoked) while the app is open. Mitigation: any `GhUnauthenticated` error invalidates the auth-status query and flips the Settings indicator immediately; cached PR data stays viewable until refresh.
 - **Crash mid-write**: `workspace.json` write is not atomic. Mitigation: write to `.tmp` then rename. `electron-store` already does this.
 - **Dangling worktrees**: if user `rm -rf`'d a worktree on disk, `git worktree list` still reports it until `git worktree prune`. Mitigation: verify each worktree path exists on disk; filter out missing.
 
@@ -573,7 +573,7 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 
 1. **Worktree discovery with non-ASCII path.** Create a worktree at `foo-测试/`, verify it renders correctly in sidebar with no encoding glitches.
 2. **Large PR diff (1000+ files).** Find a public repo PR with many files; verify virtualization keeps UI responsive; scroll performance ≥ 50 fps.
-3. **Token revoked externally.** Revoke the OAuth token at github.com/settings/apps; next API call should surface 401 and prompt re-auth without crashing.
+3. **`gh` logged out mid-session.** Run `gh auth logout` in another terminal while the app is open; next PR call should surface `GhUnauthenticated`, flip the Settings indicator, and prompt the user to run `gh auth login`. Re-running `gh auth login` + clicking Refresh restores PR features without an app restart.
 4. **Repo deleted while open.** `rm -rf` the repo path; verify the sidebar shows "Repo not found" badge; no crash; other repos continue working.
 5. **Network disconnected during PR fetch.** Airplane mode after loading a PR list; verify cached PR detail renders; refresh button disabled with tooltip.
 
@@ -586,11 +586,11 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 - [x] Sidebar groups worktrees under their main repo; active repo is visually distinguished
 - [x] File viewer renders any text file under 2MB with syntax highlighting in <200ms
 - [x] Files > 2MB and binary files show gated/placeholder views
-- [ ] Diff viewer supports working-tree, commit-range, and PR diffs via one component
-- [ ] Base/head picker typeahead-searches local branches, tags, and `origin/*` remotes
-- [ ] Unified/split toggle persists globally
+- [x] Diff viewer supports working-tree and commit-range diffs via one component (PR path ships in Phase 5)
+- [x] Base/head picker typeahead-searches local branches, tags, and `origin/*` remotes
+- [x] Unified/split toggle persists globally
 - [ ] `Cmd+Shift+C` copies selection in the documented format to the system clipboard
-- [ ] GitHub Device Flow auth succeeds end-to-end; token stored encrypted via safeStorage
+- [ ] `gh auth status` integration surfaces logged-in/logged-out state; PR features gated on a successful status check; sign-in flow points the user to `gh auth login` in their terminal
 - [ ] PR list supports state, author, label, and title filters
 - [ ] PR detail shows diff using `@pierre/diffs`
 - [ ] `Cmd+P` command menu searches files in the current repo
@@ -600,7 +600,7 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 
 - [x] Renderer has `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`; no `@electron/remote`
 - [x] Electron pinned to a version with the ASAR-integrity CVE patch (≥35.7.5)
-- [x] CSP blocks `unsafe-eval`; only self + api.github.com allowed in `connect-src`
+- [x] CSP blocks `unsafe-eval`; `connect-src` is `'self'` only (no remote HTTP from app code — `gh` handles GitHub I/O out-of-process)
 - [ ] All main-process handlers validate inputs via zod
 - [ ] DMG is signed with Developer ID Application cert and notarized via notarytool
 - [ ] Cold start to workspace ready: <2s
@@ -640,8 +640,6 @@ Manual (no automated Electron harness for MVP — spec for human verification):
   "@pierre/file-tree": "^0.0.1-beta.1",
   "@pierre/theme": "^0.0.28",
   "shiki": "^3.0.0",
-  "octokit": "^4.0.0",
-  "@octokit/auth-oauth-device": "^8.0.0",
   "simple-git": "^3.36.0",
   "trpc-electron": "^x",
   "@trpc/server": "^11.0.0",
@@ -683,9 +681,9 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 
 - macOS 12+ (Monterey) — Apple Silicon or Intel
 - Git ≥ 2.31 installed
+- GitHub CLI (`gh`) ≥ 2.40 installed and authed: `brew install gh && gh auth login` (PR features are gated on this; the rest of the app works without it)
 - Apple Developer Program membership ($99/yr) for signed/notarized distribution
 - GitHub account for PR browsing
-- GitHub OAuth App registered with Device Flow enabled → committed client ID
 
 ## Risk Analysis & Mitigation
 
@@ -698,7 +696,8 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 | macOS PATH not inherited → `git` not found | **Certain** | High | `shell-env` resolves at startup; surfaces clear error if missing. Known Electron footgun (issue #5626). |
 | Notarization delays / rejections | Medium | High | Automate via App Store Connect API Key (not Apple ID); reproducible builds; electron-builder v26 staples automatically |
 | Huge diffs OOM renderer | Medium | Medium | Streaming spawn + Pierre's `<Virtualizer>` auto-virtualization; 512KB diff-render gate |
-| GitHub rate limits (5000/hr authed) | Low | Medium | ETag conditional requests (do not count against quota) + TanStack Query caching + throttling plugin |
+| GitHub rate limits (5000/hr authed) | Low | Medium | `gh` issues ETag-conditional requests internally (304s don't count against quota); TanStack Query caches at the renderer; titlebar pill polls `gh api rate_limit` |
+| `gh` CLI not installed on user's machine | Medium | Medium | `gh-binary.ts` surfaces a clear setup modal pointing to `brew install gh`; non-PR features (workspace, files, working-tree diffs) keep working |
 | Tailwind v4 + electron-vite + shadcn CLI friction | Low | Low | Run shadcn CLI with `--cwd src/renderer` or thin root `vite.config.ts` re-export; documented in CarlosZiegler starter |
 | Code-signing cert lapses | Low | High | Calendar reminder 30 days before expiry; CI uses renewable API key |
 | CSP header registered before `app.whenReady()` | Low | High | Register inside `app.whenReady()` only (electron/electron#42000 silent crash otherwise) |
@@ -739,17 +738,17 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 Decisions taken during planning (from the 17 questions surfaced by SpecFlow), owner: author — can be revisited:
 
 1. **Add-repo UX**: both native dialog (`Cmd+O`, File → Open Repo) and drag-and-drop onto sidebar. Dropping a worktree resolves to its parent main repo via `git rev-parse --git-common-dir`.
-2. **GitHub auth**: Device Flow primary, PAT paste as escape hatch in Settings.
+2. **GitHub auth**: shell out to `gh` CLI; user authenticates once in their terminal via `gh auth login`; app reads status via `gh auth status` and surfaces it in Settings. No in-app Device Flow, no PAT paste.
 3. **Copy-for-agent template**: see `src/shared/copy-template.ts` — markdown fence with path/line-range header comment.
 4. **Default diff on repo open**: working tree (uncommitted changes) vs `HEAD`.
 5. **Branch picker scope**: local branches + tags + `origin/*` remotes.
-6. **PR diff source**: always via GitHub API (`mediaType: { format: 'diff' }`) — deterministic, no local-branch dependency.
+6. **PR diff source**: always via `gh pr diff <num> --repo <owner>/<repo>` (which uses the `application/vnd.github.diff` media type under the hood) — deterministic, no local-branch dependency.
 7. **Large-file threshold**: 2MB for source view, 512KB for diff render gate.
 8. **Binary file policy**: "Binary file (X bytes)" placeholder. Images (png/jpg/webp/svg) preview inline. No hex viewer in MVP.
 9. **Deleted/renamed files**: honor git's rename detection (default 50% similarity); deletions collapsed by default.
 10. **Merge-conflict state**: viewable (markers shown as-is); no resolution UI.
 11. **Detached HEAD**: shown as pseudo-worktree labeled `(detached @ <sha>)`.
-12. **Token storage**: safeStorage only, hard-fail if keychain unavailable. No plaintext fallback in any environment.
+12. **Token storage**: handled entirely by `gh` (macOS Keychain via the user's existing `gh` install). The app stores no auth secrets and has no `safeStorage` code path.
 13. **Worktree grouping**: nested under main repo in sidebar, even for sibling-path worktrees.
 14. **Repo removal**: right-click "Remove from workspace" with confirm; never touches disk.
 15. **Empty states copy**: author-written placeholder for MVP, designer pass post-v1.
@@ -924,7 +923,7 @@ Shiki's HAST output preserves one `<span class="line">` per logical line, with o
 ### Origin
 
 - **Brainstorm document:** [docs/brainstorms/2026-04-24-kuro-diff-brainstorm.md](../brainstorms/2026-04-24-kuro-diff-brainstorm.md)
-  - Key decisions carried forward: Approach A (focused MVP, not T3 Code fork); Electron + TanStack + shadcn; Pierre's `@pierre/diffs` + `@pierre/file-tree`; local git CLI + Octokit; read-only by design; first-class copy-for-agent action.
+  - Key decisions carried forward: Approach A (focused MVP, not T3 Code fork); Electron + TanStack + shadcn; Pierre's `@pierre/diffs` + `@pierre/file-tree`; local `git` CLI + `gh` CLI for GitHub (revised from brainstorm's Octokit assumption — see "In-app Octokit + Device Flow vs. shelling out to `gh` CLI" under Alternatives Considered); read-only by design; first-class copy-for-agent action.
 
 ### Internal References
 
@@ -944,8 +943,8 @@ Shiki's HAST output preserves one `<span class="line">` per logical line, with o
 - [TanStack Router history types](https://tanstack.com/router/latest/docs/framework/react/guide/history-types)
 - [TanStack Query v5](https://tanstack.com/query/latest)
 - [trpc-electron (mat-sz fork)](https://github.com/mat-sz/trpc-electron) — tRPC v11 support
-- [@octokit/auth-oauth-device](https://github.com/octokit/auth-oauth-device.js)
-- [Octokit umbrella package](https://github.com/octokit/octokit.js)
+- [GitHub CLI (`gh`)](https://github.com/cli/cli) — auth, `pr list`, `pr view`, `pr diff`, `api`
+- [`gh pr` manual](https://cli.github.com/manual/gh_pr) — flag reference for `--json`, `--state`, `--author`, `--label`, `--search`
 - [simple-git](https://www.npmjs.com/package/simple-git)
 - [git-worktree docs](https://git-scm.com/docs/git-worktree)
 - [Shiki install guide](https://shiki.matsu.io/guide/install)
