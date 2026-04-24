@@ -6,6 +6,13 @@ interface DiffsSidebarProps {
   readonly activeIndex: number | null
   readonly onSelect: (index: number) => void
   readonly binaryCount?: number
+  /**
+   * Paths (relative to the repo root) of files that are untracked — not
+   * staged, not in any commit. Rows whose `file.name` is in this set render
+   * a distinct `U` badge instead of the change-type badge, so users can
+   * distinguish "never-been-in-git" from "new file added on this branch".
+   */
+  readonly untrackedPaths?: ReadonlySet<string>
 }
 
 export function DiffsSidebar({
@@ -13,6 +20,7 @@ export function DiffsSidebar({
   activeIndex,
   onSelect,
   binaryCount = 0,
+  untrackedPaths,
 }: DiffsSidebarProps) {
   return (
     <div
@@ -41,6 +49,7 @@ export function DiffsSidebar({
               file={file}
               selected={activeIndex === i}
               onSelect={() => onSelect(i)}
+              untracked={untrackedPaths?.has(file.name) ?? false}
             />
           ))
         )}
@@ -53,14 +62,16 @@ interface FileRowProps {
   readonly file: FileDiffMetadata
   readonly selected: boolean
   readonly onSelect: () => void
+  readonly untracked: boolean
 }
 
-function FileRow({ file, selected, onSelect }: FileRowProps) {
-  const { label, className } = statusBadge(file.type)
-  const title =
+function FileRow({ file, selected, onSelect, untracked }: FileRowProps) {
+  const { label, className } = untracked ? UNTRACKED_BADGE : statusBadge(file.type)
+  const baseTitle =
     file.prevName && file.prevName !== file.name
       ? `${file.prevName} → ${file.name}`
       : file.name
+  const title = untracked ? `${baseTitle} (untracked)` : baseTitle
 
   return (
     <button
@@ -93,6 +104,11 @@ function FileRow({ file, selected, onSelect }: FileRowProps) {
     </button>
   )
 }
+
+const UNTRACKED_BADGE = {
+  label: 'U',
+  className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+} as const
 
 function statusBadge(type: FileDiffMetadata['type']): {
   label: string

@@ -191,22 +191,17 @@ export function streamGit(
 }
 
 /**
- * Compose a single patch representing every uncommitted change in the worktree:
- * tracked (staged + unstaged) via `git diff HEAD`, plus untracked files as
- * synthetic new-file patches via `git diff --no-index /dev/null <path>` (which
- * exits 1 when differences are found — explicitly whitelisted).
+ * Synthesize new-file patches for every untracked file in the worktree.
+ * Uses `git diff --no-index /dev/null <path>` (exit 1 = differences found —
+ * explicitly whitelisted). Returns an empty string when nothing is untracked.
  */
-export async function composeWorkingTreeDiff(cwd: string): Promise<string> {
-  const tracked = await runGit(["diff", "--no-color", "-M", "HEAD"], {
-    cwd,
-    maxBuffer: 128 * 1024 * 1024,
-  });
+export async function composeUntrackedPatches(cwd: string): Promise<string> {
   const untrackedList = await runGit(
     ["ls-files", "--others", "--exclude-standard", "-z"],
     { cwd },
   );
   const paths = untrackedList.split("\0").filter(Boolean);
-  if (paths.length === 0) return tracked;
+  if (paths.length === 0) return "";
   const fragments: string[] = [];
   for (const p of paths) {
     try {
@@ -224,5 +219,18 @@ export async function composeWorkingTreeDiff(cwd: string): Promise<string> {
       throw err;
     }
   }
-  return tracked + fragments.join("");
+  return fragments.join("");
+}
+
+/**
+ * Compose a single patch representing every uncommitted change in the worktree:
+ * tracked (staged + unstaged) via `git diff HEAD`, plus untracked files as
+ * synthetic new-file patches.
+ */
+export async function composeWorkingTreeDiff(cwd: string): Promise<string> {
+  const tracked = await runGit(["diff", "--no-color", "-M", "HEAD"], {
+    cwd,
+    maxBuffer: 128 * 1024 * 1024,
+  });
+  return tracked + (await composeUntrackedPatches(cwd));
 }

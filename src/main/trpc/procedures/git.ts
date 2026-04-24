@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../trpc.js";
-import { composeWorkingTreeDiff, runGit } from "../../services/git-service.js";
+import {
+  composeUntrackedPatches,
+  composeWorkingTreeDiff,
+  runGit,
+} from "../../services/git-service.js";
 import {
   detectMainBranch,
   resolveRepo,
@@ -153,9 +157,14 @@ export const gitRouter = router({
     const { worktree } = await resolveWorktree(input.repoId, input.worktreeId);
     const cwd = worktree.path;
 
-    // Working-tree row (Commits tab): bypass the regular path and render the
-    // full "what's not committed yet" patch including untracked files.
-    if (input.head === null && !input.staged && input.includeUntracked) {
+    // Commits-tab working-tree row: caller pins base to HEAD and asks for
+    // untracked — use the dedicated composer (HEAD → worktree + untracked).
+    if (
+      input.head === null &&
+      !input.staged &&
+      input.includeUntracked &&
+      input.base === "HEAD"
+    ) {
       return { patch: await composeWorkingTreeDiff(cwd) };
     }
 
@@ -183,9 +192,20 @@ export const gitRouter = router({
     }
 
     try {
-      return {
-        patch: await runGit(args, { cwd, maxBuffer: 128 * 1024 * 1024 }),
-      };
+      let patch = await runGit(args, { cwd, maxBuffer: 128 * 1024 * 1024 });
+      // Diffs-tab working-tree view against an arbitrary base: append
+      // synthesized untracked patches so new files appear alongside tracked
+      // changes. Skipped for staged-only and ref-to-ref diffs (untracked
+      // is meaningless in those).
+      if (
+        input.head === null &&
+        !input.staged &&
+        input.includeUntracked &&
+        (!input.paths || input.paths.length === 0)
+      ) {
+        patch += await composeUntrackedPatches(cwd);
+      }
+      return { patch };
     } catch (err) {
       // Fallback: if base can't be resolved inside this worktree (fresh clone
       // before fetch), retry with `HEAD` so the user at least sees a diff
@@ -196,10 +216,18 @@ export const gitRouter = router({
         input.base !== "HEAD"
       ) {
         const retryArgs = args.map((a) => (a === input.base ? "HEAD" : a));
-        const patch = await runGit(retryArgs, {
+        let patch = await runGit(retryArgs, {
           cwd,
           maxBuffer: 128 * 1024 * 1024,
         });
+        if (
+          input.head === null &&
+          !input.staged &&
+          input.includeUntracked &&
+          (!input.paths || input.paths.length === 0)
+        ) {
+          patch += await composeUntrackedPatches(cwd);
+        }
         return { patch };
       }
       throw err;
