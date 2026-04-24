@@ -64,6 +64,19 @@ function RootLayout() {
       .map((m) => (m.params as { worktreeId?: string }).worktreeId)
       .find((v): v is string => typeof v === "string") ?? null;
 
+  // When the active route is worktree-agnostic (e.g. `/repos/:repoId/prs`),
+  // the worktreeId param is missing, which breaks cmd+1/2/3 navigation to
+  // Files/Diffs/Commits. Fall back to the repo's primary worktree so the
+  // shortcut still lands somewhere sensible.
+  const worktreeFallbackQuery = trpc.workspace.listWorktrees.useQuery(
+    { repoId: activeRepoId ?? "" },
+    { enabled: !!activeRepoId && !activeWorktreeId, staleTime: 60_000 },
+  );
+  const fallbackWorktreeId =
+    worktreeFallbackQuery.data?.find((w) => w.isPrimary)?.id ??
+    worktreeFallbackQuery.data?.[0]?.id ??
+    null;
+
   const addRepo = trpc.workspace.addRepoFromDialog.useMutation({
     onSuccess: () => void utils.workspace.list.invalidate(),
   });
@@ -94,7 +107,8 @@ function RootLayout() {
         });
         return;
       }
-      if (!activeWorktreeId) return;
+      const worktreeId = activeWorktreeId ?? fallbackWorktreeId;
+      if (!worktreeId) return;
       const to =
         tab === "files"
           ? "/repos/$repoId/wt/$worktreeId/files"
@@ -103,7 +117,7 @@ function RootLayout() {
             : "/repos/$repoId/wt/$worktreeId/commits";
       void navigate({
         to,
-        params: { repoId: activeRepoId, worktreeId: activeWorktreeId },
+        params: { repoId: activeRepoId, worktreeId },
       });
     }
     const handler = (_event: unknown, command: MenuCommand): void => {
@@ -166,6 +180,7 @@ function RootLayout() {
   }, [
     activeRepoId,
     activeWorktreeId,
+    fallbackWorktreeId,
     addRepo,
     matches,
     navigate,

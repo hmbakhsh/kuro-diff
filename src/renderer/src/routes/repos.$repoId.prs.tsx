@@ -102,6 +102,13 @@ function PRsRoute() {
             >
               Diffs
             </Link>
+            <Link
+              to="/repos/$repoId/wt/$worktreeId/commits"
+              params={{ repoId, worktreeId: primaryWorktreeId }}
+              className={tabIdleClass}
+            >
+              Commits
+            </Link>
           </>
         )}
         <Link

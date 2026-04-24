@@ -4,6 +4,7 @@ import { cn } from '@renderer/lib/cn'
 import { trpc } from '@renderer/trpc'
 import { DiffView } from '@renderer/components/diffs/DiffView'
 import { DiffModeToggle, type DiffMode } from '@renderer/components/diffs/DiffModeToggle'
+import { useDiffFiles } from '@renderer/components/diffs/useDiffFiles'
 import { PRErrorState } from '@renderer/components/prs/PRErrorState'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '../../../../main/trpc/router'
@@ -50,6 +51,11 @@ export function PRDetail({ repoId, number }: PRDetailProps) {
 
   const openExternal = trpc.github.openExternal.useMutation()
 
+  const parsed = useDiffFiles(
+    diff.data?.patch ?? '',
+    `pr:${repoId}:${number}:${pr.data?.headRefOid ?? ''}`,
+  )
+
   const err = pr.error ?? diff.error
   if (err) {
     return (
@@ -72,7 +78,6 @@ export function PRDetail({ repoId, number }: PRDetailProps) {
   }
 
   const data = pr.data
-  const diffData = diff.data
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -88,11 +93,7 @@ export function PRDetail({ repoId, number }: PRDetailProps) {
         canOpenExternal={isGithubUrl(data.url)}
       />
       <div className="min-h-0 flex-1">
-        <DiffView
-          patch={diffData.patch}
-          mode={mode}
-          cacheKey={`pr:${repoId}:${number}:${data.headRefOid}`}
-        />
+        <DiffView parsed={parsed} mode={mode} />
       </div>
     </div>
   )

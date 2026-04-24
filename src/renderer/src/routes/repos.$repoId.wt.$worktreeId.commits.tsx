@@ -242,6 +242,14 @@ function CommitsView() {
     });
   };
 
+  const onOpenFile = (path: string): void => {
+    void navigate({
+      to: "/repos/$repoId/wt/$worktreeId/files",
+      params: { repoId, worktreeId },
+      search: { p: path },
+    });
+  };
+
   return (
     <div className="flex h-full min-h-0">
       <CommitsSidebar
@@ -272,6 +280,7 @@ function CommitsView() {
             modified: statusQuery.data?.modified.length ?? 0,
             untracked: statusQuery.data?.untracked.length ?? 0,
           }}
+          onOpenFile={onOpenFile}
         />
       ) : (
         <CommitDetail
@@ -282,6 +291,7 @@ function CommitsView() {
           isPending={!!selectedCommit && commitDiffQuery.isPending}
           error={commitDiffQuery.error?.message ?? null}
           meta={(commitDiffQuery.data?.meta as CommitMeta | undefined) ?? null}
+          onOpenFile={onOpenFile}
         />
       )}
     </div>

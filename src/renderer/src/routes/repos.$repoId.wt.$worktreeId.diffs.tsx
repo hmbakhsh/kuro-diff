@@ -1,10 +1,12 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { trpc } from '@renderer/trpc'
 import { RefPicker } from '@renderer/components/diffs/RefPicker'
 import { DiffModeToggle, type DiffMode } from '@renderer/components/diffs/DiffModeToggle'
-import { DiffView } from '@renderer/components/diffs/DiffView'
+import { DiffView, type DiffViewHandle } from '@renderer/components/diffs/DiffView'
+import { DiffsSidebar } from '@renderer/components/diffs/DiffsSidebar'
+import { useDiffFiles } from '@renderer/components/diffs/useDiffFiles'
 
 const WORKING_TREE = '__wt__'
 
@@ -85,6 +87,30 @@ function DiffsView() {
     return `${base} → ${headForQuery}`
   }, [base, headForQuery, staged])
 
+  const cacheKey = `${repoId}:${worktreeId}:${base}:${headForQuery ?? 'wt'}:${staged ? 's' : ''}`
+  const parsed = useDiffFiles(diffQuery.data?.patch ?? '', cacheKey)
+
+  const diffViewRef = useRef<DiffViewHandle>(null)
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
+
+  // Reset selection when the file set changes (new ref/base combo).
+  useEffect(() => {
+    setActiveIndex(null)
+  }, [cacheKey])
+
+  const handleSelect = (index: number) => {
+    setActiveIndex(index)
+    diffViewRef.current?.scrollToFile(index)
+  }
+
+  const handleOpenFile = (path: string) => {
+    void navigate({
+      to: '/repos/$repoId/wt/$worktreeId/files',
+      params: { repoId, worktreeId },
+      search: { p: path },
+    })
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-end gap-3 border-b border-black/10 px-4 py-2 dark:border-white/10">
@@ -146,13 +172,13 @@ function DiffsView() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1">
         {refsQuery.isError && (
           <div className="p-4 text-xs text-red-500">
             Failed to load refs: {refsQuery.error.message}
           </div>
         )}
-        {diffQuery.isPending && (
+        {!refsQuery.isError && diffQuery.isPending && (
           <div className="p-4 text-xs text-zinc-500">Loading diff…</div>
         )}
         {diffQuery.isError && (
@@ -161,11 +187,22 @@ function DiffsView() {
           </div>
         )}
         {diffQuery.data && (
-          <DiffView
-            patch={diffQuery.data.patch}
-            mode={mode}
-            cacheKey={`${repoId}:${worktreeId}:${base}:${headForQuery ?? 'wt'}:${staged ? 's' : ''}`}
-          />
+          <>
+            <DiffsSidebar
+              files={parsed.files}
+              activeIndex={activeIndex}
+              onSelect={handleSelect}
+              binaryCount={parsed.binaryCount}
+            />
+            <div className="min-w-0 flex-1">
+              <DiffView
+                ref={diffViewRef}
+                parsed={parsed}
+                mode={mode}
+                onOpenFile={handleOpenFile}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>

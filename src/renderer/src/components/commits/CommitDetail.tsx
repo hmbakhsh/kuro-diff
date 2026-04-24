@@ -1,5 +1,6 @@
 import { DiffView } from "@renderer/components/diffs/DiffView";
 import type { DiffMode } from "@renderer/components/diffs/DiffModeToggle";
+import { useDiffFiles } from "@renderer/components/diffs/useDiffFiles";
 import { cn } from "@renderer/lib/cn";
 import { formatRelative } from "@renderer/lib/relative-date";
 
@@ -20,6 +21,7 @@ interface BaseProps {
   readonly patch: string | null;
   readonly isPending: boolean;
   readonly error: string | null;
+  readonly onOpenFile?: (path: string) => void;
 }
 
 interface CommitDetailProps extends BaseProps {
@@ -36,6 +38,7 @@ interface WorkingTreeDetailProps extends BaseProps {
 type Props = CommitDetailProps | WorkingTreeDetailProps;
 
 export function CommitDetail(props: Props) {
+  const parsed = useDiffFiles(props.patch ?? "", props.cacheKey);
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <Header {...props} />
@@ -48,9 +51,9 @@ export function CommitDetail(props: Props) {
         )}
         {!props.error && !props.isPending && props.patch !== null && (
           <DiffView
-            patch={props.patch}
+            parsed={parsed}
             mode={props.mode}
-            cacheKey={props.cacheKey}
+            onOpenFile={props.onOpenFile}
           />
         )}
       </div>
