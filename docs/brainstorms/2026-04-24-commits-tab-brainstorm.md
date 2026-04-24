@@ -17,6 +17,7 @@ Layout is internal to the tab: a vertical sidebar on the left listing rows, and 
 Clicking a row loads the delta's diff in the right pane using the same `DiffView` component the Diffs tab uses. Copy-for-agent is available on the selection, scoped to the current row's delta (same palette, same templates).
 
 **Out of scope for this pass:**
+
 - Graph rendering (branch topology lines)
 - Merge-commit handling beyond showing them as one entry
 - Staged-only vs unstaged-only split of the working-tree row (Diffs tab already has a `staged` toggle — use that for drilldown)

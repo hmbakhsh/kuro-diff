@@ -1,17 +1,17 @@
-import { cn } from '@renderer/lib/cn'
-import { formatRelative } from '@renderer/lib/relative-date'
+import { cn } from "@renderer/lib/cn";
+import { formatRelative } from "@renderer/lib/relative-date";
 
 export interface CommitRowCommit {
-  readonly sha: string
-  readonly shortSha: string
-  readonly subject: string
-  readonly authorDate: string
+  readonly sha: string;
+  readonly shortSha: string;
+  readonly subject: string;
+  readonly authorDate: string;
 }
 
 interface CommitRowProps {
-  readonly commit: CommitRowCommit
-  readonly selected: boolean
-  readonly onSelect: () => void
+  readonly commit: CommitRowCommit;
+  readonly selected: boolean;
+  readonly onSelect: () => void;
 }
 
 export function CommitRow({ commit, selected, onSelect }: CommitRowProps) {
@@ -21,10 +21,10 @@ export function CommitRow({ commit, selected, onSelect }: CommitRowProps) {
       onClick={onSelect}
       title={commit.subject}
       className={cn(
-        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px]',
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px]",
         selected
-          ? 'bg-black/10 text-zinc-900 dark:bg-white/15 dark:text-zinc-100'
-          : 'text-zinc-700 hover:bg-black/5 dark:text-zinc-300 dark:hover:bg-white/10',
+          ? "bg-black/10 text-zinc-900 dark:bg-white/15 dark:text-zinc-100"
+          : "text-zinc-700 hover:bg-black/5 dark:text-zinc-300 dark:hover:bg-white/10",
       )}
     >
       <span className="w-[54px] shrink-0 font-mono text-[11px] text-zinc-500">
@@ -35,5 +35,5 @@ export function CommitRow({ commit, selected, onSelect }: CommitRowProps) {
         {formatRelative(commit.authorDate)}
       </span>
     </button>
-  )
+  );
 }

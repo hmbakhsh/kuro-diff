@@ -73,25 +73,25 @@ The Commits tab reads the same per-worktree `compareBases` preference as the Dif
 
 ### New Files
 
-| Path | Purpose |
-|---|---|
-| `src/renderer/src/routes/repos.$repoId.wt.$worktreeId.commits.tsx` | Route, URL-state, layout, query orchestration |
-| `src/renderer/src/components/commits/CommitsSidebar.tsx` | Scrollable list, header toggle, load-more, selection state |
-| `src/renderer/src/components/commits/CommitRow.tsx` | One commit row (SHA + subject + date) |
-| `src/renderer/src/components/commits/WorkingTreeRow.tsx` | Top-of-list pseudo-row; visible when `git.status` reports dirty |
-| `src/renderer/src/components/commits/CommitDetail.tsx` | Right pane: metadata header + `DiffView` |
-| `src/renderer/src/lib/relative-date.ts` | Single helper: `formatRelative(date: Date \| string): string` → `"2h"`, `"3d"`, `"Apr 10"` past a threshold |
+| Path                                                               | Purpose                                                                                                     |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `src/renderer/src/routes/repos.$repoId.wt.$worktreeId.commits.tsx` | Route, URL-state, layout, query orchestration                                                               |
+| `src/renderer/src/components/commits/CommitsSidebar.tsx`           | Scrollable list, header toggle, load-more, selection state                                                  |
+| `src/renderer/src/components/commits/CommitRow.tsx`                | One commit row (SHA + subject + date)                                                                       |
+| `src/renderer/src/components/commits/WorkingTreeRow.tsx`           | Top-of-list pseudo-row; visible when `git.status` reports dirty                                             |
+| `src/renderer/src/components/commits/CommitDetail.tsx`             | Right pane: metadata header + `DiffView`                                                                    |
+| `src/renderer/src/lib/relative-date.ts`                            | Single helper: `formatRelative(date: Date \| string): string` → `"2h"`, `"3d"`, `"Apr 10"` past a threshold |
 
 ### Modified Files
 
-| Path | Change |
-|---|---|
-| `src/main/trpc/procedures/git.ts` | Extend `diffInput`; add `log`, `status`, `commitDiff` procedures |
-| `src/main/services/git-service.ts` | Add `allowedExitCodes` option to `runGit`; add `composeWorkingTreeDiff` helper |
-| `src/renderer/src/routes/repos.$repoId.wt.$worktreeId.tsx` | Add `<Link>` for Commits tab between Diffs and PRs |
-| `src/renderer/src/routes/__root.tsx` | Add `"commits"` to `TABS` so menu/command shortcuts include it |
-| `src/renderer/src/hooks/useCopyForAgent.ts` | Recognize commit / working-tree capture scopes from `useCaptureStore` (no new palette entries — existing actions already operate on `target.diff` + `target.sha`) |
-| `src/renderer/src/routes/repos.$repoId.wt.$worktreeId.diffs.tsx` | No change expected; Commits reads its state |
+| Path                                                             | Change                                                                                                                                                            |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/trpc/procedures/git.ts`                                | Extend `diffInput`; add `log`, `status`, `commitDiff` procedures                                                                                                  |
+| `src/main/services/git-service.ts`                               | Add `allowedExitCodes` option to `runGit`; add `composeWorkingTreeDiff` helper                                                                                    |
+| `src/renderer/src/routes/repos.$repoId.wt.$worktreeId.tsx`       | Add `<Link>` for Commits tab between Diffs and PRs                                                                                                                |
+| `src/renderer/src/routes/__root.tsx`                             | Add `"commits"` to `TABS` so menu/command shortcuts include it                                                                                                    |
+| `src/renderer/src/hooks/useCopyForAgent.ts`                      | Recognize commit / working-tree capture scopes from `useCaptureStore` (no new palette entries — existing actions already operate on `target.diff` + `target.sha`) |
+| `src/renderer/src/routes/repos.$repoId.wt.$worktreeId.diffs.tsx` | No change expected; Commits reads its state                                                                                                                       |
 
 ### Backend Design
 
@@ -101,21 +101,21 @@ The Commits tab reads the same per-worktree `compareBases` preference as the Dif
 const logInput = z.object({
   repoId: z.string().uuid(),
   worktreeId: z.string(),
-  base: z.string().optional(),        // when set, list base..HEAD; otherwise full HEAD log
+  base: z.string().optional(), // when set, list base..HEAD; otherwise full HEAD log
   limit: z.number().int().min(1).max(200).optional(), // default 50
-  cursor: z.number().int().min(0).optional(),         // skip count for pagination
-})
+  cursor: z.number().int().min(0).optional(), // skip count for pagination
+});
 
 // Response shape
 type LogCommit = {
-  sha: string          // full
-  shortSha: string     // 7-char
-  subject: string
-  authorName: string   // kept in response but not rendered in v1 (cheap, future-proof)
-  authorDate: string   // ISO
-  parents: string[]    // 0–2 SHAs
-}
-type LogResponse = { commits: LogCommit[]; nextCursor: number | null }
+  sha: string; // full
+  shortSha: string; // 7-char
+  subject: string;
+  authorName: string; // kept in response but not rendered in v1 (cheap, future-proof)
+  authorDate: string; // ISO
+  parents: string[]; // 0–2 SHAs
+};
+type LogResponse = { commits: LogCommit[]; nextCursor: number | null };
 ```
 
 Implementation: `git log --no-color --format='%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s' [base..HEAD] --max-count=<limit+1> --skip=<cursor>` using the ASCII unit-separator (`%x1f`) between fields and newlines between records. Over-fetch by 1 to detect a next page. Parents is space-split. `base..HEAD` is used when `base` is provided; otherwise just `HEAD`. Fallback on "unknown revision" errors: retry without the range (full HEAD log), matching the `diff` procedure's `HEAD` fallback.
@@ -123,14 +123,17 @@ Implementation: `git log --no-color --format='%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%s
 #### `git.status`
 
 ```ts
-const statusInput = z.object({ repoId: z.string().uuid(), worktreeId: z.string() })
+const statusInput = z.object({
+  repoId: z.string().uuid(),
+  worktreeId: z.string(),
+});
 
 type StatusResponse = {
-  isDirty: boolean
-  staged: string[]      // paths with staged changes
-  modified: string[]    // tracked, unstaged changes
-  untracked: string[]   // not in index, not ignored
-}
+  isDirty: boolean;
+  staged: string[]; // paths with staged changes
+  modified: string[]; // tracked, unstaged changes
+  untracked: string[]; // not in index, not ignored
+};
 ```
 
 Implementation: `git status --porcelain=v1 -z --untracked-files=all`. Parse per-record XY pair → categorize. Dirty = any non-empty list.
@@ -142,15 +145,25 @@ const commitDiffInput = z.object({
   repoId: z.string().uuid(),
   worktreeId: z.string(),
   sha: z.string().regex(/^[0-9a-f]{4,40}$/),
-})
+});
 
 type CommitDiffResponse = {
-  patch: string
-  meta: { sha: string; shortSha: string; subject: string; body: string; authorName: string; authorEmail: string; authorDate: string; parents: string[] }
-}
+  patch: string;
+  meta: {
+    sha: string;
+    shortSha: string;
+    subject: string;
+    body: string;
+    authorName: string;
+    authorEmail: string;
+    authorDate: string;
+    parents: string[];
+  };
+};
 ```
 
 Implementation: two git calls (parallel via `Promise.all`):
+
 - Patch: `git show --no-color -M --format= <sha>` — empty `--format=` suppresses the commit header so only the patch comes back; handles root commit natively.
 - Meta: `git show --no-patch --format='%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b' <sha>`.
 
@@ -163,22 +176,25 @@ Add `includeUntracked?: boolean` (default `false`) to `diffInput`. When `true` A
 ```ts
 // src/main/services/git-service.ts — new helper
 export async function composeWorkingTreeDiff(cwd: string): Promise<string> {
-  const tracked = await runGit(['diff', '--no-color', '-M', 'HEAD'], { cwd, maxBuffer: 128 * 1024 * 1024 })
+  const tracked = await runGit(["diff", "--no-color", "-M", "HEAD"], {
+    cwd,
+    maxBuffer: 128 * 1024 * 1024,
+  });
   const untrackedList = await runGit(
-    ['ls-files', '--others', '--exclude-standard', '-z'],
+    ["ls-files", "--others", "--exclude-standard", "-z"],
     { cwd },
-  )
-  const paths = untrackedList.split('\0').filter(Boolean)
-  if (paths.length === 0) return tracked
-  const fragments: string[] = []
+  );
+  const paths = untrackedList.split("\0").filter(Boolean);
+  if (paths.length === 0) return tracked;
+  const fragments: string[] = [];
   for (const p of paths) {
     const frag = await runGit(
-      ['diff', '--no-color', '--no-index', '--', '/dev/null', p],
+      ["diff", "--no-color", "--no-index", "--", "/dev/null", p],
       { cwd, maxBuffer: 64 * 1024 * 1024, allowedExitCodes: [1] }, // 1 = differences found
-    )
-    fragments.push(frag)
+    );
+    fragments.push(frag);
   }
-  return tracked + fragments.join('')
+  return tracked + fragments.join("");
 }
 ```
 
@@ -192,17 +208,18 @@ export async function composeWorkingTreeDiff(cwd: string): Promise<string> {
 
 ```ts
 const searchSchema = z.object({
-  sha: z.string().optional(),  // commit SHA (short or full), or 'wt' for working tree, or undefined
+  sha: z.string().optional(), // commit SHA (short or full), or 'wt' for working tree, or undefined
   full: z.boolean().optional(), // true = full history, undefined/false = base..HEAD
-})
+});
 
-export const Route = createFileRoute('/repos/$repoId/wt/$worktreeId/commits')({
+export const Route = createFileRoute("/repos/$repoId/wt/$worktreeId/commits")({
   validateSearch: (s: Record<string, unknown>) => searchSchema.parse(s),
   component: CommitsView,
-})
+});
 ```
 
 `CommitsView` orchestrates:
+
 1. `refsQuery = trpc.git.refs.useQuery({ repoId }, { staleTime: 60_000 })` (reuse).
 2. `preferencesQuery = trpc.preferences.get.useQuery(undefined, { staleTime: Infinity })` (reuse).
 3. Resolved base = `preferences.compareBases[key] ?? refs.mainBranch ?? null`. Key = `${repoId}:${worktreeId}`.
@@ -219,6 +236,7 @@ Layout uses `flex h-full min-h-0`. Sidebar = `w-[320px] shrink-0 border-r`; deta
 #### Components
 
 **`CommitsSidebar`** (`components/commits/CommitsSidebar.tsx`)
+
 - Props: `{ workingTreeStatus, commits, selectedSha, onSelect, showFullHistory, onToggleFullHistory, hasNextPage, fetchNextPage, isFetchingNextPage }`.
 - Header: `[x] Show full history` checkbox (dirty-looking + tiny), and a count ("12 commits" / "base..HEAD" label).
 - Body (scrollable):
@@ -228,16 +246,19 @@ Layout uses `flex h-full min-h-0`. Sidebar = `w-[320px] shrink-0 border-r`; deta
 - Keyboard: captures `ArrowUp`/`ArrowDown` when sidebar has focus (via `onKeyDown`) and advances selection. Enter does nothing for v1 (click is already the primary action); Space reserved for Phase 3.
 
 **`CommitRow`** (`components/commits/CommitRow.tsx`)
+
 - Props: `{ commit: LogCommit, selected: boolean, onClick: () => void }`.
 - Layout: single line, monospace short SHA, subject (truncated, title-attr'd to full subject), relative date right-aligned.
 - States: selected → `bg-black/10 dark:bg-white/15`; hover → `bg-black/5 dark:bg-white/10`. Matches the tab-nav active/idle tokens for visual cohesion.
 
 **`WorkingTreeRow`** (`components/commits/WorkingTreeRow.tsx`)
+
 - Props: `{ status: StatusResponse, selected: boolean, onClick: () => void }`.
 - Shows "Working tree" in place of SHA, and a file-count summary (e.g. `2 modified · 1 untracked`).
 - Visible only when `status.isDirty`.
 
 **`CommitDetail`** (`components/commits/CommitDetail.tsx`)
+
 - Props: `{ scope: 'commit' | 'wt', meta?, patch?, mode: DiffMode, isLoading, error, cacheKey: string }`.
 - Header:
   - For a commit: short SHA (monospace) with click-to-copy, subject, author + relative date, `{N} files` badge. Full body collapsible via a `<details>` (default closed).
@@ -247,13 +268,13 @@ Layout uses `flex h-full min-h-0`. Sidebar = `w-[320px] shrink-0 border-r`; deta
 
 #### URL and navigation
 
-| Event | URL effect |
-|---|---|
-| Initial mount, no `sha` set, list resolves | Replace-navigate to the first-row id (`wt` or first commit) |
-| Click a row | Replace-navigate to `?sha=<id>` |
-| Toggle "Show full history" | Navigate to `?full=true&sha=<current or undefined>` and let normalization re-select first row if the current `sha` is missing in the new dataset |
-| Arrow-key navigation | Replace-navigate to adjacent row's id |
-| External change (Diffs tab mutates compareBase) | `logQuery` refetches; if current `sha` vanishes, re-select first |
+| Event                                           | URL effect                                                                                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Initial mount, no `sha` set, list resolves      | Replace-navigate to the first-row id (`wt` or first commit)                                                                                      |
+| Click a row                                     | Replace-navigate to `?sha=<id>`                                                                                                                  |
+| Toggle "Show full history"                      | Navigate to `?full=true&sha=<current or undefined>` and let normalization re-select first row if the current `sha` is missing in the new dataset |
+| Arrow-key navigation                            | Replace-navigate to adjacent row's id                                                                                                            |
+| External change (Diffs tab mutates compareBase) | `logQuery` refetches; if current `sha` vanishes, re-select first                                                                                 |
 
 #### Tab nav (modified)
 
@@ -278,17 +299,21 @@ Layout uses `flex h-full min-h-0`. Sidebar = `w-[320px] shrink-0 border-r`; deta
 
 ```ts
 export function formatRelative(input: string | Date, now = new Date()): string {
-  const d = typeof input === 'string' ? new Date(input) : input
-  const diffMs = now.getTime() - d.getTime()
-  const mins = Math.max(0, Math.round(diffMs / 60_000))
-  if (mins < 1) return 'now'
-  if (mins < 60) return `${mins}m`
-  const hours = Math.round(mins / 60)
-  if (hours < 24) return `${hours}h`
-  const days = Math.round(hours / 24)
-  if (days < 7) return `${days}d`
-  const sameYear = d.getFullYear() === now.getFullYear()
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) })
+  const d = typeof input === "string" ? new Date(input) : input;
+  const diffMs = now.getTime() - d.getTime();
+  const mins = Math.max(0, Math.round(diffMs / 60_000));
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d`;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
 }
 ```
 
@@ -433,14 +458,14 @@ A single `useEffect` in `CommitsView` watches the resolved selection + patch and
 
 ## Risk Analysis & Mitigation
 
-| Risk | Severity | Mitigation |
-|---|---|---|
-| Untracked binary files or huge untracked directories blow up `composeWorkingTreeDiff`'s buffer | Medium | Per-file `maxBuffer: 64 MB` cap; if exceeded, fall back to listing the path without a patch body (show "too large to preview"). Add in Phase 4 if encountered. |
-| `git show` on a merge commit shows the combined diff; user expects "vs first parent" | Low | Document; pass `-m --first-parent` only if the user reports the default feels wrong. Deferred. |
-| Selection state desync between URL and sidebar focus after Ref changes | Medium | Single effect in `CommitsView` owns the reconciliation; sidebar never holds its own selection state. |
-| Shallow clones show surprising logs | Medium | Banner when the `base..HEAD` retry-without-range fallback triggers. |
-| `captureStore` write/clear races between tab unmount and a pending diff query | Low | Guard the `useEffect` cleanup with a cancelled-flag; set target only when the query's data matches the currently-selected scope. |
-| Polling `git.status` on a large repo churns CPU | Low | `staleTime: 5_000` + `refetchOnWindowFocus`; Phase 4 replaces polling with watcher-driven invalidation. |
+| Risk                                                                                           | Severity | Mitigation                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Untracked binary files or huge untracked directories blow up `composeWorkingTreeDiff`'s buffer | Medium   | Per-file `maxBuffer: 64 MB` cap; if exceeded, fall back to listing the path without a patch body (show "too large to preview"). Add in Phase 4 if encountered. |
+| `git show` on a merge commit shows the combined diff; user expects "vs first parent"           | Low      | Document; pass `-m --first-parent` only if the user reports the default feels wrong. Deferred.                                                                 |
+| Selection state desync between URL and sidebar focus after Ref changes                         | Medium   | Single effect in `CommitsView` owns the reconciliation; sidebar never holds its own selection state.                                                           |
+| Shallow clones show surprising logs                                                            | Medium   | Banner when the `base..HEAD` retry-without-range fallback triggers.                                                                                            |
+| `captureStore` write/clear races between tab unmount and a pending diff query                  | Low      | Guard the `useEffect` cleanup with a cancelled-flag; set target only when the query's data matches the currently-selected scope.                               |
+| Polling `git.status` on a large repo churns CPU                                                | Low      | `staleTime: 5_000` + `refetchOnWindowFocus`; Phase 4 replaces polling with watcher-driven invalidation.                                                        |
 
 ## Edge Cases (for SpecFlow coverage)
 

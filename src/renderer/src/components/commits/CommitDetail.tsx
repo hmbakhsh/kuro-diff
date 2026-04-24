@@ -1,39 +1,39 @@
-import { DiffView } from '@renderer/components/diffs/DiffView'
-import type { DiffMode } from '@renderer/components/diffs/DiffModeToggle'
-import { cn } from '@renderer/lib/cn'
-import { formatRelative } from '@renderer/lib/relative-date'
+import { DiffView } from "@renderer/components/diffs/DiffView";
+import type { DiffMode } from "@renderer/components/diffs/DiffModeToggle";
+import { cn } from "@renderer/lib/cn";
+import { formatRelative } from "@renderer/lib/relative-date";
 
 export interface CommitMeta {
-  readonly sha: string
-  readonly shortSha: string
-  readonly subject: string
-  readonly body: string
-  readonly authorName: string
-  readonly authorEmail: string
-  readonly authorDate: string
-  readonly parents: string[]
+  readonly sha: string;
+  readonly shortSha: string;
+  readonly subject: string;
+  readonly body: string;
+  readonly authorName: string;
+  readonly authorEmail: string;
+  readonly authorDate: string;
+  readonly parents: string[];
 }
 
 interface BaseProps {
-  readonly mode: DiffMode
-  readonly cacheKey: string
-  readonly patch: string | null
-  readonly isPending: boolean
-  readonly error: string | null
+  readonly mode: DiffMode;
+  readonly cacheKey: string;
+  readonly patch: string | null;
+  readonly isPending: boolean;
+  readonly error: string | null;
 }
 
 interface CommitDetailProps extends BaseProps {
-  readonly scope: 'commit'
-  readonly meta: CommitMeta | null
+  readonly scope: "commit";
+  readonly meta: CommitMeta | null;
 }
 
 interface WorkingTreeDetailProps extends BaseProps {
-  readonly scope: 'wt'
-  readonly branch: string | null
-  readonly counts: { staged: number; modified: number; untracked: number }
+  readonly scope: "wt";
+  readonly branch: string | null;
+  readonly counts: { staged: number; modified: number; untracked: number };
 }
 
-type Props = CommitDetailProps | WorkingTreeDetailProps
+type Props = CommitDetailProps | WorkingTreeDetailProps;
 
 export function CommitDetail(props: Props) {
   return (
@@ -47,22 +47,26 @@ export function CommitDetail(props: Props) {
           <div className="p-4 text-xs text-zinc-500">Loading diff…</div>
         )}
         {!props.error && !props.isPending && props.patch !== null && (
-          <DiffView patch={props.patch} mode={props.mode} cacheKey={props.cacheKey} />
+          <DiffView
+            patch={props.patch}
+            mode={props.mode}
+            cacheKey={props.cacheKey}
+          />
         )}
       </div>
     </div>
-  )
+  );
 }
 
 function Header(props: Props) {
-  if (props.scope === 'commit') {
-    const { meta } = props
+  if (props.scope === "commit") {
+    const { meta } = props;
     if (!meta) {
       return (
         <div className="shrink-0 border-b border-black/10 px-4 py-2 text-[12px] text-zinc-500 dark:border-white/10">
           Select a commit
         </div>
-      )
+      );
     }
     return (
       <div className="shrink-0 border-b border-black/10 px-4 py-2 dark:border-white/10">
@@ -72,8 +76,8 @@ function Header(props: Props) {
             onClick={() => void navigator.clipboard.writeText(meta.sha)}
             title={`Copy ${meta.sha}`}
             className={cn(
-              'font-mono text-[11px] text-zinc-500',
-              'hover:text-zinc-900 dark:hover:text-zinc-100',
+              "font-mono text-[11px] text-zinc-500",
+              "hover:text-zinc-900 dark:hover:text-zinc-100",
             )}
           >
             {meta.shortSha}
@@ -90,11 +94,13 @@ function Header(props: Props) {
             <summary className="cursor-pointer select-none text-[11px] text-zinc-500">
               Message
             </summary>
-            <pre className="whitespace-pre-wrap pt-1 font-sans">{meta.body}</pre>
+            <pre className="whitespace-pre-wrap pt-1 font-sans">
+              {meta.body}
+            </pre>
           </details>
         )}
       </div>
-    )
+    );
   }
 
   const summaryLine = [
@@ -103,7 +109,7 @@ function Header(props: Props) {
     props.counts.untracked > 0 ? `${props.counts.untracked} untracked` : null,
   ]
     .filter(Boolean)
-    .join(' · ')
+    .join(" · ");
 
   return (
     <div className="shrink-0 border-b border-black/10 px-4 py-2 dark:border-white/10">
@@ -115,10 +121,10 @@ function Header(props: Props) {
           Working tree
         </span>
         <span className="ml-auto shrink-0 text-[11px] text-zinc-500">
-          {props.branch ? `on ${props.branch} · ` : ''}
-          {summaryLine || 'No changes'}
+          {props.branch ? `on ${props.branch} · ` : ""}
+          {summaryLine || "No changes"}
         </span>
       </div>
     </div>
-  )
+  );
 }

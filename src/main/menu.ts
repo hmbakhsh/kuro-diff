@@ -4,28 +4,29 @@ import {
   Menu,
   shell,
   type MenuItemConstructorOptions,
-} from 'electron'
+} from "electron";
 
-export const MENU_CHANNEL = 'kuro:menu'
+export const MENU_CHANNEL = "kuro:menu";
 export type MenuCommand =
-  | 'file.open-repo'
-  | 'file.settings'
-  | 'view.toggle-sidebar'
-  | 'view.toggle-theme'
-  | 'go.files'
-  | 'go.diffs'
-  | 'go.commits'
-  | 'go.prs'
-  | 'go.settings'
-  | 'go.next-tab'
-  | 'go.prev-tab'
-  | 'palette.command'
-  | 'palette.copy-for-agent'
+  | "file.open-repo"
+  | "file.settings"
+  | "view.toggle-sidebar"
+  | "view.toggle-theme"
+  | "go.files"
+  | "go.diffs"
+  | "go.commits"
+  | "go.prs"
+  | "go.settings"
+  | "go.next-tab"
+  | "go.prev-tab"
+  | "palette.command"
+  | "palette.copy-for-agent";
 
 function send(command: MenuCommand): void {
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-  if (!win) return
-  win.webContents.send(MENU_CHANNEL, command)
+  const win =
+    BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+  win.webContents.send(MENU_CHANNEL, command);
 }
 
 function item(
@@ -37,7 +38,7 @@ function item(
     label,
     accelerator,
     click: () => send(command),
-  }
+  };
 }
 
 /**
@@ -47,13 +48,13 @@ function item(
  * are omitted to avoid double-triggering with the input handler.
  */
 export function installApplicationMenu(): void {
-  const isMac = process.platform === 'darwin'
+  const isMac = process.platform === "darwin";
 
   const zoomItems: MenuItemConstructorOptions[] = [
-    { role: 'resetZoom', label: 'Actual Size' },
-    { role: 'zoomIn', label: 'Zoom In' },
-    { role: 'zoomOut', label: 'Zoom Out' },
-  ]
+    { role: "resetZoom", label: "Actual Size" },
+    { role: "zoomIn", label: "Zoom In" },
+    { role: "zoomOut", label: "Zoom Out" },
+  ];
 
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
@@ -61,97 +62,97 @@ export function installApplicationMenu(): void {
           {
             label: app.name,
             submenu: [
-              { role: 'about' },
-              { type: 'separator' },
-              item('Settings…', 'file.settings', 'Cmd+,'),
-              { type: 'separator' },
-              { role: 'services' },
-              { type: 'separator' },
-              { role: 'hide' },
-              { role: 'hideOthers' },
-              { role: 'unhide' },
-              { type: 'separator' },
-              { role: 'quit' },
+              { role: "about" },
+              { type: "separator" },
+              item("Settings…", "file.settings", "Cmd+,"),
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
             ],
           } satisfies MenuItemConstructorOptions,
         ]
       : []),
     {
-      label: 'File',
+      label: "File",
       submenu: [
-        item('Open Repo…', 'file.open-repo', 'CmdOrCtrl+O'),
-        { type: 'separator' },
-        { role: 'close' },
+        item("Open Repo…", "file.open-repo", "CmdOrCtrl+O"),
+        { type: "separator" },
+        { role: "close" },
       ],
     },
     {
-      label: 'Edit',
+      label: "Edit",
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-        { type: 'separator' },
-        item('Copy for Agent…', 'palette.copy-for-agent', 'CmdOrCtrl+Shift+C'),
-        item('Command Palette…', 'palette.command', 'CmdOrCtrl+P'),
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+        { type: "separator" },
+        item("Copy for Agent…", "palette.copy-for-agent", "CmdOrCtrl+Shift+C"),
+        item("Command Palette…", "palette.command", "CmdOrCtrl+P"),
       ],
     },
     {
-      label: 'View',
+      label: "View",
       submenu: [
-        item('Toggle Sidebar', 'view.toggle-sidebar', 'CmdOrCtrl+\\'),
-        item('Cycle Theme', 'view.toggle-theme'),
-        { type: 'separator' },
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
+        item("Toggle Sidebar", "view.toggle-sidebar", "CmdOrCtrl+\\"),
+        item("Cycle Theme", "view.toggle-theme"),
+        { type: "separator" },
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
         ...zoomItems,
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
+        { type: "separator" },
+        { role: "togglefullscreen" },
       ],
     },
     {
-      label: 'Go',
+      label: "Go",
       submenu: [
-        item('Files', 'go.files', 'CmdOrCtrl+1'),
-        item('Diffs', 'go.diffs', 'CmdOrCtrl+2'),
-        item('Commits', 'go.commits', 'CmdOrCtrl+3'),
-        item('Pull Requests', 'go.prs', 'CmdOrCtrl+4'),
-        item('Settings', 'go.settings'),
-        { type: 'separator' },
-        item('Previous Tab', 'go.prev-tab', 'CmdOrCtrl+Shift+['),
-        item('Next Tab', 'go.next-tab', 'CmdOrCtrl+Shift+]'),
+        item("Files", "go.files", "CmdOrCtrl+1"),
+        item("Diffs", "go.diffs", "CmdOrCtrl+2"),
+        item("Commits", "go.commits", "CmdOrCtrl+3"),
+        item("Pull Requests", "go.prs", "CmdOrCtrl+4"),
+        item("Settings", "go.settings"),
+        { type: "separator" },
+        item("Previous Tab", "go.prev-tab", "CmdOrCtrl+Shift+["),
+        item("Next Tab", "go.next-tab", "CmdOrCtrl+Shift+]"),
       ],
     },
     {
-      label: 'Window',
+      label: "Window",
       submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
+        { role: "minimize" },
+        { role: "zoom" },
         ...(isMac
           ? [
-              { type: 'separator' } as MenuItemConstructorOptions,
-              { role: 'front' } as MenuItemConstructorOptions,
+              { type: "separator" } as MenuItemConstructorOptions,
+              { role: "front" } as MenuItemConstructorOptions,
             ]
-          : [{ role: 'close' } as MenuItemConstructorOptions]),
+          : [{ role: "close" } as MenuItemConstructorOptions]),
       ],
     },
     {
-      label: 'Help',
+      label: "Help",
       submenu: [
         {
-          label: 'GitHub CLI Manual',
+          label: "GitHub CLI Manual",
           click: () => {
-            void shell.openExternal('https://cli.github.com/manual/')
+            void shell.openExternal("https://cli.github.com/manual/");
           },
         },
       ],
     },
-  ]
+  ];
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
