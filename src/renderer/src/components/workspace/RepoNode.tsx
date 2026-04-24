@@ -2,19 +2,23 @@ import { useState } from 'react'
 import { ChevronRight, Folder, GitBranch, GitCommit, X } from 'lucide-react'
 import { trpc } from '@renderer/trpc'
 import { cn } from '@renderer/lib/cn'
-import type { WorkspaceRepo } from '@shared/types'
+import type { WorkspaceRepo, Worktree } from '@shared/types'
 
 interface RepoNodeProps {
   repo: WorkspaceRepo
-  isActive: boolean
-  onSelect(repoId: string): void
+  activeWorktreeId: string | null
+  onSelectWorktree(repoId: string, worktreeId: string): void
 }
 
-export function RepoNode({ repo, isActive, onSelect }: RepoNodeProps) {
+export function RepoNode({
+  repo,
+  activeWorktreeId,
+  onSelectWorktree,
+}: RepoNodeProps) {
   const [expanded, setExpanded] = useState(true)
   const worktrees = trpc.workspace.listWorktrees.useQuery(
     { repoId: repo.id },
-    { enabled: expanded, staleTime: 30_000 },
+    { staleTime: 30_000 },
   )
   const status = trpc.workspace.status.useQuery(
     { repoId: repo.id },
@@ -28,33 +32,23 @@ export function RepoNode({ repo, isActive, onSelect }: RepoNodeProps) {
   })
 
   const dirty = status.data?.dirty === true
+  const selectedInRepo = (worktrees.data ?? []).some(
+    (w) => w.id === activeWorktreeId,
+  )
 
   return (
     <div className="select-none">
       <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onSelect(repo.id)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onSelect(repo.id)
-          }
-        }}
         className={cn(
           'drag-none group flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
-          'cursor-pointer',
-          isActive
-            ? 'bg-black/10 dark:bg-white/10 font-medium'
-            : 'hover:bg-black/5 dark:hover:bg-white/5',
+          selectedInRepo
+            ? 'font-medium'
+            : 'text-zinc-600 dark:text-zinc-400',
         )}
       >
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            setExpanded((v) => !v)
-          }}
+          onClick={() => setExpanded((v) => !v)}
           className="rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
           aria-label={expanded ? 'Collapse' : 'Expand'}
         >
@@ -78,7 +72,7 @@ export function RepoNode({ repo, isActive, onSelect }: RepoNodeProps) {
           type="button"
           onClick={(e) => {
             e.stopPropagation()
-            if (confirm(`Remove “${repo.name}” from the workspace?`)) {
+            if (confirm(`Remove "${repo.name}" from the workspace?`)) {
               remove.mutate({ repoId: repo.id })
             }
           }}
@@ -94,32 +88,64 @@ export function RepoNode({ repo, isActive, onSelect }: RepoNodeProps) {
       </div>
 
       {expanded && worktrees.data && worktrees.data.length > 0 && (
-        <ul className="ml-6 mt-0.5 space-y-0.5">
+        <ul className="ml-4 mt-0.5 space-y-0.5">
           {worktrees.data.map((w) => (
-            <li
-              key={w.path}
-              className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] text-zinc-600 dark:text-zinc-400"
-              title={w.path}
-            >
-              {w.detached ? (
-                <GitCommit className="size-3" strokeWidth={2} />
-              ) : (
-                <GitBranch className="size-3" strokeWidth={2} />
-              )}
-              <span className="truncate">
-                {w.detached
-                  ? `(detached @ ${w.head.slice(0, 7)})`
-                  : (w.branch?.replace('refs/heads/', '') ?? '(unknown)')}
-              </span>
-              {w.isPrimary && (
-                <span className="rounded bg-black/5 px-1 text-[9px] uppercase tracking-wider dark:bg-white/10">
-                  main
-                </span>
-              )}
-            </li>
+            <WorktreeRow
+              key={w.id}
+              worktree={w}
+              isActive={activeWorktreeId === w.id}
+              onSelect={() => onSelectWorktree(repo.id, w.id)}
+            />
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+interface WorktreeRowProps {
+  worktree: Worktree
+  isActive: boolean
+  onSelect(): void
+}
+
+function WorktreeRow({ worktree, isActive, onSelect }: WorktreeRowProps) {
+  const label = worktree.detached
+    ? `(detached @ ${worktree.head.slice(0, 7)})`
+    : worktree.branch?.replace('refs/heads/', '') ?? '(unknown)'
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        title={worktree.path}
+        className={cn(
+          'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px]',
+          isActive
+            ? 'bg-black/10 font-medium text-zinc-900 dark:bg-white/15 dark:text-zinc-100'
+            : 'text-zinc-600 hover:bg-black/5 dark:text-zinc-400 dark:hover:bg-white/10',
+        )}
+      >
+        {worktree.detached ? (
+          <GitCommit className="size-3 shrink-0" strokeWidth={2} />
+        ) : (
+          <GitBranch className="size-3 shrink-0" strokeWidth={2} />
+        )}
+        <span className="truncate">{label}</span>
+        {worktree.isPrimary && (
+          <span
+            className={cn(
+              'ml-auto shrink-0 rounded px-1 text-[9px] uppercase tracking-wider',
+              isActive
+                ? 'bg-black/10 dark:bg-white/15'
+                : 'bg-black/5 dark:bg-white/10',
+            )}
+          >
+            main
+          </span>
+        )}
+      </button>
+    </li>
   )
 }

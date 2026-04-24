@@ -8,18 +8,24 @@ import { FindInFileOverlay } from './FindInFileOverlay'
 
 interface FileContentProps {
   repoId: string
+  worktreeId?: string
   path: string | null
   className?: string
 }
 
-export function FileContent({ repoId, path, className }: FileContentProps) {
+export function FileContent({
+  repoId,
+  worktreeId,
+  path,
+  className,
+}: FileContentProps) {
   const [force, setForce] = useState(false)
   const [showFind, setShowFind] = useState(false)
   const viewerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     setForce(false)
     setShowFind(false)
-  }, [repoId, path])
+  }, [repoId, worktreeId, path])
 
   // Cmd+F opens the find overlay — only relevant while viewing text.
   useEffect(() => {
@@ -35,7 +41,7 @@ export function FileContent({ repoId, path, className }: FileContentProps) {
   }, [])
 
   const query = trpc.fs.readFile.useQuery(
-    path ? { repoId, path, force } : (undefined as never),
+    path ? { repoId, worktreeId, path, force } : (undefined as never),
     { enabled: !!path, staleTime: 30_000 },
   )
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type DragEvent } from 'react'
+import { useCallback, type DragEvent } from 'react'
 import { trpc } from '@renderer/trpc'
 import { cn } from '@renderer/lib/cn'
 import { RepoNode } from './RepoNode'
@@ -6,35 +6,19 @@ import { AddRepoButton } from './AddRepoButton'
 
 interface WorkspaceSidebarProps {
   activeRepoId: string | null
-  onSelectRepo(repoId: string): void
+  activeWorktreeId: string | null
+  onSelectWorktree(repoId: string, worktreeId: string): void
 }
 
 export function WorkspaceSidebar({
-  activeRepoId,
-  onSelectRepo,
+  activeWorktreeId,
+  onSelectWorktree,
 }: WorkspaceSidebarProps) {
   const repos = trpc.workspace.list.useQuery()
   const utils = trpc.useUtils()
   const addRepo = trpc.workspace.addRepo.useMutation({
     onSuccess: () => void utils.workspace.list.invalidate(),
   })
-
-  // Cmd+1..9 — quick repo switch
-  useEffect(() => {
-    const data = repos.data ?? []
-    function handler(e: KeyboardEvent): void {
-      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey) return
-      const n = parseInt(e.key, 10)
-      if (!Number.isInteger(n) || n < 1 || n > 9) return
-      const target = data[n - 1]
-      if (target) {
-        e.preventDefault()
-        onSelectRepo(target.id)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [repos.data, onSelectRepo])
 
   const handleDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
@@ -86,8 +70,8 @@ export function WorkspaceSidebar({
           <RepoNode
             key={repo.id}
             repo={repo}
-            isActive={activeRepoId === repo.id}
-            onSelect={onSelectRepo}
+            activeWorktreeId={activeWorktreeId}
+            onSelectWorktree={onSelectWorktree}
           />
         ))}
       </div>
