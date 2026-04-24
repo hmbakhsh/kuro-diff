@@ -49,14 +49,16 @@ export function CopyForAgentPalette({ open, onOpenChange }: CopyForAgentPaletteP
       open={open}
       onOpenChange={onOpenChange}
       label="Copy for agent"
+      className="flex min-h-0 flex-1 flex-col"
       contentClassName={cn(
-        'fixed left-1/2 top-[18vh] z-50 w-[min(560px,92vw)] -translate-x-1/2',
+        'fixed left-1/2 top-[18vh] z-50 flex w-[min(560px,92vw)] -translate-x-1/2 flex-col',
+        'max-h-[min(440px,70vh)] overflow-hidden',
         'rounded-xl border border-black/10 bg-white/95 shadow-2xl backdrop-blur',
         'dark:border-white/10 dark:bg-zinc-900/95',
       )}
       overlayClassName="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
     >
-      <div className="border-b border-black/5 px-3 dark:border-white/5">
+      <div className="shrink-0 border-b border-black/5 px-3 dark:border-white/5">
         <Command.Input
           value={search}
           onValueChange={setSearch}
@@ -67,7 +69,7 @@ export function CopyForAgentPalette({ open, onOpenChange }: CopyForAgentPaletteP
           )}
         />
       </div>
-      <Command.List className="max-h-[52vh] overflow-y-auto p-1">
+      <Command.List className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1">
         <Command.Empty className="px-4 py-6 text-center text-xs text-zinc-500">
           Nothing matches.
         </Command.Empty>
@@ -98,7 +100,7 @@ export function CopyForAgentPalette({ open, onOpenChange }: CopyForAgentPaletteP
           })}
         </Command.Group>
       </Command.List>
-      <div className="border-t border-black/5 px-3 py-1.5 text-[10px] text-zinc-500 dark:border-white/5">
+      <div className="shrink-0 border-t border-black/5 px-3 py-1.5 text-[10px] text-zinc-500 dark:border-white/5">
         <span className="font-mono">{preset}</span>
         <span className="mx-2">·</span>
         <span>Enter to copy · Esc to close</span>

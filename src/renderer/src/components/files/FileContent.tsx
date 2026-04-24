@@ -229,9 +229,9 @@ function useWorktreeMeta(
     { staleTime: 30_000 },
   )
   const worktree = query.data?.find((w) => w.id === worktreeId)
-  if (!worktree) return { sha: null, branch: null }
-  return {
-    sha: worktree.head ? worktree.head.slice(0, 7) : null,
-    branch: worktree.branch?.replace('refs/heads/', '') ?? null,
-  }
+  const sha = worktree?.head ? worktree.head.slice(0, 7) : null
+  const branch = worktree?.branch?.replace('refs/heads/', '') ?? null
+  // Memoize on primitives so the capture-target memoization upstream doesn't
+  // see a new object each render and kick off a re-registration loop.
+  return useMemo(() => ({ sha, branch }), [sha, branch])
 }

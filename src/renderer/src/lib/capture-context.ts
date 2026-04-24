@@ -58,15 +58,38 @@ export function useCaptureTarget(): CaptureTarget | null {
  * Mount-scoped registration of a capture target. Each caller owns a private
  * symbol so stacked mounts (A → B → unmount A) don't clobber the live owner.
  * Last register wins for read; unregister only fires if this caller still owns.
+ *
+ * Effect dependencies key off a stable primitive signature so callers that
+ * rebuild the target object every render (without changing its contents) don't
+ * loop through register → setTarget → re-render → rebuild → register.
  */
 export function useRegisterCapture(target: CaptureTarget | null): void {
   const { register, unregister } = useCaptureStore()
   const token = useMemo(() => Symbol('capture'), [])
+  const signature = target ? targetSignature(target) : null
+  const latest = useRef(target)
+  latest.current = target
   useEffect(() => {
-    if (!target) return
-    register(token, target)
+    if (!latest.current) return
+    register(token, latest.current)
     return () => unregister(token)
-  }, [target, register, unregister, token])
+  }, [signature, register, unregister, token])
+}
+
+function targetSignature(t: CaptureTarget): string {
+  return [
+    t.repoId,
+    t.worktreeId ?? '',
+    t.relativePath,
+    t.sha ?? '',
+    t.branch ?? '',
+    t.language ?? '',
+    t.lineCount,
+    t.contents?.length ?? -1,
+    t.diff?.base ?? '',
+    t.diff?.head ?? '',
+    t.diff?.patch.length ?? -1,
+  ].join('\x1f')
 }
 
 /**

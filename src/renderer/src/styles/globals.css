@@ -39,4 +39,20 @@
   .drag-none {
     -webkit-app-region: no-drag;
   }
+
+  /* cmdk group heading — cmdk renders an unstyled `<div cmdk-group-heading>`,
+     so we paint it here to match the rest of the shell (same case/tracking
+     as the sidebar section labels). Scoped to `[cmdk-dialog]` so ordinary
+     Command roots elsewhere (if any) stay opt-in. */
+  [cmdk-dialog] [cmdk-group-heading] {
+    padding: 12px 10px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgb(113 113 122); /* zinc-500 */
+  }
+  [cmdk-dialog] [cmdk-group]:first-child [cmdk-group-heading] {
+    padding-top: 6px;
+  }
 }

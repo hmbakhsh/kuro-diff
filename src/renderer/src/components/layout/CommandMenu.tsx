@@ -28,6 +28,12 @@ type CommandItemBase = {
   readonly run: () => void
 }
 
+/** Cap the number of file rows we hand to cmdk per keystroke. cmdk reorders
+ *  DOM via `appendChild` on every filter pass, so the cost is linear in the
+ *  number of rendered items. 200 is ~20ms on an M-series Mac and covers the
+ *  common "I typed enough characters to find what I wanted" case. */
+const FILE_ROW_CAP = 200
+
 export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const navigate = useNavigate()
   const matches = useMatches()
@@ -76,21 +82,40 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   )
 
   const files = filesQuery.data?.files ?? []
-  const ranked = useMemo(() => {
+
+  // Pre-filter + rank files in JS so cmdk only ever sees a small window of
+  // rows. Rendering ~2000 `<Command.Item>`s was the source of the keystroke
+  // lag — cmdk's internal `appendChild` reordering runs per-item per-input.
+  const rankedFiles = useMemo(() => {
     if (!activeRepoId || !activeWorktreeId) return [] as string[]
-    const set = new Set(files)
-    const ordered: string[] = []
-    for (const r of recents) {
-      if (set.has(r)) {
-        ordered.push(r)
-        set.delete(r)
+    const needle = queryText.toLowerCase()
+
+    if (needle.length === 0) {
+      const recentSet = new Set(recents)
+      const head: string[] = []
+      for (const r of recents) if (files.includes(r)) head.push(r)
+      for (const f of files) {
+        if (head.length + (recentSet.has(f) ? 0 : 1) > FILE_ROW_CAP) break
+        if (!recentSet.has(f)) head.push(f)
       }
+      return head.slice(0, FILE_ROW_CAP)
     }
-    for (const f of files) if (set.has(f)) ordered.push(f)
-    // Truncate to keep the filter fast; cmdk's built-in `command-score`
-    // degrades beyond a few thousand items.
-    return ordered.slice(0, 2000)
-  }, [files, recents, activeRepoId, activeWorktreeId])
+
+    const scored: Array<{ path: string; score: number }> = []
+    for (const path of files) {
+      const lower = path.toLowerCase()
+      const idx = lower.indexOf(needle)
+      if (idx === -1) continue
+      // Prefer matches that hit the basename + hits closer to path start.
+      const base = path.slice(path.lastIndexOf('/') + 1).toLowerCase()
+      const baseIdx = base.indexOf(needle)
+      const baseBonus = baseIdx >= 0 ? 0.5 + 0.25 * (1 - baseIdx / base.length) : 0
+      const score = 1 - idx / Math.max(lower.length, 1) + baseBonus
+      scored.push({ path, score })
+    }
+    scored.sort((a, b) => b.score - a.score)
+    return scored.slice(0, FILE_ROW_CAP).map((s) => s.path)
+  }, [files, recents, activeRepoId, activeWorktreeId, queryText])
 
   const close = () => onOpenChange(false)
 
@@ -214,25 +239,25 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       open={open}
       onOpenChange={onOpenChange}
       label="Command menu"
+      // `shouldFilter={false}` — we pre-filter file rows in JS so cmdk only
+      // paints what matched. Without this, cmdk re-scores + re-orders every
+      // item in the DOM on every keystroke (the cause of the input lag).
+      shouldFilter={false}
+      // cmdk spreads unknown props onto its `cmdk-root` div, which wraps our
+      // children. DialogContent is flex-col so cmdk-root gets a bounded height
+      // as a flex-1 child; without that the List's `overflow-auto` has no
+      // constraint to scroll against, and arrow-nav scrolls the document
+      // instead — pushing the search input out of view.
+      className="flex min-h-0 flex-1 flex-col"
       contentClassName={cn(
-        'fixed left-1/2 top-[18vh] z-50 w-[min(640px,92vw)] -translate-x-1/2',
+        'fixed left-1/2 top-[18vh] z-50 flex w-[min(640px,92vw)] -translate-x-1/2 flex-col',
+        'max-h-[min(520px,70vh)] overflow-hidden',
         'rounded-xl border border-black/10 bg-white/95 shadow-2xl backdrop-blur',
         'dark:border-white/10 dark:bg-zinc-900/95',
       )}
       overlayClassName="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
-      filter={(value, s) => {
-        // value and search are lowercased by cmdk already. Match on substring
-        // so paths like `src/main/index.ts` score well against "main/index".
-        if (s.length === 0) return 1
-        const lower = value.toLowerCase()
-        const needle = s.toLowerCase()
-        const idx = lower.indexOf(needle)
-        if (idx === -1) return 0
-        // Earlier hits rank higher; exact boundary start wins.
-        return 1 - idx / Math.max(lower.length, 1)
-      }}
     >
-      <div className="border-b border-black/5 px-3 dark:border-white/5">
+      <div className="shrink-0 border-b border-black/5 px-3 dark:border-white/5">
         <Command.Input
           value={search}
           onValueChange={setSearch}
@@ -245,7 +270,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           )}
         />
       </div>
-      <Command.List className="max-h-[60vh] overflow-y-auto p-1">
+      <Command.List className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1">
         <Command.Empty className="px-4 py-6 text-center text-xs text-zinc-500">
           No matches.
         </Command.Empty>
@@ -268,7 +293,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               </Command.Group>
             )}
             <Command.Group heading="Files">
-              {ranked.map((path) => (
+              {rankedFiles.map((path) => (
                 <FileRow key={path} path={path} icon={FileCode} onSelect={onFileSelect} />
               ))}
             </Command.Group>
@@ -325,7 +350,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           </Command.Group>
         )}
       </Command.List>
-      <div className="border-t border-black/5 px-3 py-1.5 text-[10px] text-zinc-500 dark:border-white/5">
+      <div className="shrink-0 border-t border-black/5 px-3 py-1.5 text-[10px] text-zinc-500 dark:border-white/5">
         {isCommandMode ? 'Command mode' : 'File search'}
         <span className="mx-2">·</span>
         Enter to run · Esc to close
