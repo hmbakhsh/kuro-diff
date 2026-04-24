@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { runGit } from './git-service.js'
+import { mapRepoToGitHub } from './github-mapping.js'
 import type { WorkspaceRepo } from '@shared/types'
 
 /**
@@ -58,12 +59,14 @@ export async function resolveRepoPath(inputPath: string): Promise<WorkspaceRepo>
     defaultBranch = null
   }
 
+  const github = await mapRepoToGitHub(mainRepoPath).catch(() => null)
+
   return {
     id: randomUUID(),
     path: mainRepoPath,
     name: basename(mainRepoPath),
     defaultBranch,
-    github: null, // Phase 5 fills this in via hosted-git-info on origin remote.
+    github: github ? { owner: github.owner, repo: github.repo, host: github.host } : null,
     addedAt: new Date().toISOString(),
   }
 }
