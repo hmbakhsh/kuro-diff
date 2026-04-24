@@ -42,7 +42,14 @@ export function FileContent({
 
   const query = trpc.fs.readFile.useQuery(
     path ? { repoId, worktreeId, path, force } : (undefined as never),
-    { enabled: !!path, staleTime: 30_000 },
+    {
+      enabled: !!path,
+      staleTime: 30_000,
+      // File bodies can be large (hundreds of KB each) — excluded from the
+      // localStorage persister in main.tsx. In-memory retention follows the
+      // global gcTime (24h), so quickly toggling between files stays snappy.
+      meta: { persist: false },
+    },
   )
 
   // Ensure the language's grammar is attached to Pierre's shared highlighter
