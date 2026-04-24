@@ -4,6 +4,7 @@ import { workspaceRouter } from './procedures/workspace.js'
 import { fsRouter } from './procedures/fs.js'
 import { gitRouter } from './procedures/git.js'
 import { preferencesRouter } from './procedures/preferences.js'
+import { githubRouter } from './procedures/github.js'
 
 export const appRouter = router({
   system: systemRouter,
@@ -11,6 +12,7 @@ export const appRouter = router({
   fs: fsRouter,
   git: gitRouter,
   preferences: preferencesRouter,
+  github: githubRouter,
 })
 
 export type AppRouter = typeof appRouter

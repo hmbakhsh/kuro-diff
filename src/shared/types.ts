@@ -43,3 +43,13 @@ export interface PRSummary {
   readonly author: string
   readonly updatedAt: string
 }
+
+/** gh error kinds surfaced through tRPC error `data.kind`. */
+export type GhErrorKind =
+  | 'binary-missing'
+  | 'unauthenticated'
+  | 'rate-limited'
+  | 'not-found'
+  | 'network'
+  | 'timeout'
+  | 'command'
