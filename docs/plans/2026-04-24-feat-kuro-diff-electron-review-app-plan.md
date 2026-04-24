@@ -14,6 +14,74 @@ kuro-diff is a macOS desktop application (Electron 35+ / TanStack Router / TanSt
 
 The app ships as a notarized `.dmg` with auto-update via GitHub Releases. No editing, no agent execution, no review-state persistence — scope is deliberately narrow.
 
+## Implementation Progress & Handoff Notes
+
+**Last updated:** 2026-04-24. **Phases 1 and 2 shipped; Phases 3–7 pending.** Read this whole section before making assumptions about the state of the tree — several plan details were changed during implementation.
+
+### Phases shipped
+
+- **Phase 1** — commit `487288d` — electron scaffold, hardened security, tRPC wired end-to-end, TanStack Router with hash history, TanStack Query provider, shared copy-template and types. Verified via CDP: `trpc.system.ping` round-trips through the IPC bridge and returns `{ pong, appVersion, now }`.
+- **Phase 2** — commit `8e04040` — git-binary, git-service, worktree parser, workspace-store, fs-watcher, repo-resolver, workspace tRPC procedures, `WorkspaceSidebar`/`RepoNode`/`AddRepoButton`. Verified end-to-end in a live run that added a repo, persisted it to `~/Library/Application Support/kuro-diff/config.json`, and rendered its worktrees in the sidebar.
+
+### Decisions that diverge from the plan as written
+
+Do not "fix" these back to the plan text without understanding why they changed:
+
+1. **Main process is CJS, not ESM.** The plan implies `"type": "module"` for the whole app. That was tried and failed: `trpc-electron`'s bundled module imports `contextBridge` from `electron` at top level, and ESM strict-export checks throw in the main process (where only `ipcMain` is provided). CJS's loose `require` tolerates the missing prop. `package.json` has no `"type"` field. Main output is `.js` CJS, preload is `.js` CJS, renderer is ESM via Vite.
+2. **Preload does NOT use `externalizeDepsPlugin`.** Sandboxed preloads can't resolve from `node_modules` at runtime, so every dep must be bundled into `out/preload/index.js`. Only `electron` itself is external. This is the opposite of what the plan section on Phase 1 implies by mentioning `externalizeDepsPlugin` generically.
+3. **CSP dev-relaxation is gated on `ELECTRON_RENDERER_URL`, not `is.dev`.** `is.dev` is `!app.isPackaged`, so running the built bundle locally (unpackaged, no HMR server) would otherwise weaken the CSP. The renderer URL env var is only set by `electron-vite dev`, which is the exact condition where `unsafe-eval` + `ws:` are needed.
+4. **`shell-env` is ESM-only and loaded via dynamic import.** Same for `electron-store@11`. Both are used through `await import(...)` inside CJS main code. If you switch main back to ESM later, clean these up — but see point 1.
+5. **`initGitBinary()` is a one-time startup call**, not a per-command resolution. Called from `app.whenReady()`. After init, `gitEnv()` and `resolveGitBinary()` are synchronous and cached. Any new main-process code that wants to spawn git must assume init has already run.
+6. **Route tree generation paths are relative to the renderer's Vite root (`src/renderer`), not to the repo root.** In `electron.vite.config.ts` the `routesDirectory` is `'src/routes'` (not `'src/renderer/src/routes'`). `routeTree.gen.ts` is in the same directory — gitignored.
+7. **JSX return-type annotations were dropped.** React 19 removes the global `JSX` namespace, so `function Foo(): JSX.Element` no longer compiles. Let TypeScript infer the return type, or import `JSX` from `react` if you need an explicit annotation.
+8. **`build/afterPack.cjs`** is already written (with `@electron/fuses`), but **fuses are only flipped during `electron-builder` packaging**, not during dev or `electron-vite build`. Phase 7 is when this matters.
+9. **Plan dep versions were aspirational.** Actual installed versions differ from the "Runtime dependencies" list:
+   - `@electron-toolkit/preload ^3.0.2` (plan said `^3.0.3` — unpublished)
+   - `@electron-toolkit/tsconfig ^2.0.0` (plan said `^1.0.1`)
+   - `@electron/fuses ^2.0.0`, `@electron/notarize ^3.0.0`
+   - `trpc-electron ^0.1.2` (not `^0.6.0` — plan's mat-sz fork version doesn't exist on npm; this IS the mat-sz package)
+   - `lucide-react ^0.577.0` (not `^0.485` — newer major series)
+   - `@vitejs/plugin-react ^4.3.4` — must not be `^6`; plugin-react 6 requires Vite 7, electron-vite 3.x only supports Vite 6
+   - `sonner ^2.0.0` (plan said `^1.7.x`)
+
+### Quirks a fresh agent will hit
+
+- **pnpm 10 blocks postinstall scripts by default.** `pnpm-workspace.yaml` now has `onlyBuiltDependencies: [electron, esbuild, electron-winstaller]` to allow electron to fetch its binary. If `node_modules/.bin/electron --version` fails after a fresh install, run `pnpm rebuild electron`.
+- **`zsh` on this machine has `rm`/`ls` aliased to `trash`/`lsd`.** Use `/bin/rm` and `/bin/ls` in shell tool calls, or use the `Read` and dedicated tools instead of `cat`.
+- **Running the built app without dev server:** `NODE_ENV=production ./node_modules/.bin/electron .` — this loads `out/main/index.js` directly. For a CDP-based smoke test, add `--remote-debugging-port=9223` and hit `http://127.0.0.1:9223/json` for the target list.
+- **`trpc-electron` wire format** (if you ever need to talk to the bridge from CDP): messages go over IPC channel `"trpc-electron"` as `{ method: "request", operation: <op> }` — not `{ method: "mutation"|"query", operation }`. Easier to exercise through the React Query hooks in the renderer.
+- **Workspace store writes are async** (dynamic import + awaited accessors). Don't assume any `setX()` in `workspace-store.ts` is synchronous the way a bare `electron-store` instance would be.
+- **`chokidar`'s `followSymlinks: false`** is deliberate. Repos under symlinked `node_modules` shouldn't be auto-followed.
+
+### Notes to the next agent
+
+- **Phase 3 first move:** verify `@pierre/file-tree`'s React wrapper actually mounts in an Electron renderer. It's Preact 11 beta inside a Shadow DOM — there's a real chance of hydration issues the plan flags as the largest risk. If it breaks, the fallback is `@headless-tree/react` directly (Appendix A.8 + risk table). Do this spike before building the split-pane file viewer, not after.
+- **Phase 3 Shiki singleton:** do NOT call `createHighlighter`/`createHighlighterCore` from our own code. Use Pierre's `preloadHighlighter`/`getSharedHighlighter` from `@pierre/diffs`. This is called out in the plan but worth restating — it's the single easiest mistake to make.
+- **Phase 4 worker pool:** if electron-vite can't resolve `@pierre/diffs/worker/worker.js` via `new URL(..., import.meta.url)`, try `worker-portable.js` first. If both fail under the current CSP, `disableWorkerPool` per-component is an acceptable MVP fallback up to ~1–2k diff lines.
+- **Phase 5 auth:** read the plan's call-out about GitHub App vs OAuth App. The decision is GitHub App + Device Flow. The `clientId` goes in the repo; no secret.
+- **Empty-state messaging:** the current sidebar says "Drop a repo folder here, or click below." That's placeholder copy — leave it through Phase 6 when the designer pass happens (decision #15 in "Decisions Resolved").
+- **Smoke-test pattern for integration checks** (optional but worth knowing): build with `pnpm run build`, run Electron with `--remote-debugging-port=9223`, use a small `ws`-based CDP client to call `Runtime.evaluate` on the renderer. The `window.electronTRPC` bridge is the direct raw channel; React Query cache is easier to inspect through the rendered DOM.
+- **Do not commit `src/renderer/src/routeTree.gen.ts`** — it's generated and gitignored.
+- **Do not commit `node_modules/`, `out/`, or `release/`** — all gitignored.
+- **`docs/plans/` is authoritative.** Keep checking off acceptance criteria in this file as you ship them. The checkboxes under "Functional Requirements" and "Non-Functional Requirements" are the closest thing to a ship list this project has.
+- **No remote yet, no CI yet.** The repo is local-only. When you're ready to push, the user will need to create the GitHub repo first.
+
+### Current checkbox state (summary)
+
+**Non-Functional Requirements** (in "Acceptance Criteria"):
+- Renderer hardened defaults ✅
+- Electron ASAR-integrity patched ✅
+- CSP blocks `unsafe-eval` in prod ✅
+
+**Functional Requirements:**
+- `Cmd+O` + drag-and-drop add repo with worktree discovery ✅
+- Sidebar groups worktrees under main repo ✅
+- Everything else pending
+
+**Quality Gates:**
+- Every tRPC procedure has zod input schema ✅
+- Every long-running subprocess has 30s timeout ✅
+
 ## Problem Statement
 
 Existing code editors (VS Code, Cursor, Zed) are built for writers. When your workflow is 100% "review what an agent produced and react," the editor UX fights you: edit affordances are everywhere, diff viewers are second-class, PR review requires browser context-switching, and there's no single action that gives you "a pastable block representing this chunk of the change."
