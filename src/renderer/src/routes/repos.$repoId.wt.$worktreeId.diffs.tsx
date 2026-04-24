@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { z } from 'zod'
-import { trpc } from '@renderer/trpc'
-import { RefPicker } from '@renderer/components/diffs/RefPicker'
-import { DiffModeToggle, type DiffMode } from '@renderer/components/diffs/DiffModeToggle'
-import { DiffView, type DiffViewHandle } from '@renderer/components/diffs/DiffView'
-import { DiffsSidebar } from '@renderer/components/diffs/DiffsSidebar'
-import { useDiffFiles } from '@renderer/components/diffs/useDiffFiles'
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { z } from "zod";
+import { trpc } from "@renderer/trpc";
+import { RefPicker } from "@renderer/components/diffs/RefPicker";
+import {
+  DiffModeToggle,
+  type DiffMode,
+} from "@renderer/components/diffs/DiffModeToggle";
+import {
+  DiffView,
+  type DiffViewHandle,
+} from "@renderer/components/diffs/DiffView";
+import { DiffsSidebar } from "@renderer/components/diffs/DiffsSidebar";
+import { useDiffFiles } from "@renderer/components/diffs/useDiffFiles";
+import { useWorktreeUI } from "@renderer/lib/worktree-ui-state";
 
-const WORKING_TREE = '__wt__'
+const WORKING_TREE = "__wt__";
 
 // `head` values: a ref name, the `__wt__` sentinel for the worktree's current
 // working copy, or undefined (coerced to the working-tree default on first
@@ -17,44 +24,44 @@ const searchSchema = z.object({
   base: z.string().optional(),
   head: z.string().optional(),
   staged: z.boolean().optional(),
-})
+});
 
-export const Route = createFileRoute('/repos/$repoId/wt/$worktreeId/diffs')({
-  validateSearch: (search: Record<string, unknown>) => searchSchema.parse(search),
+export const Route = createFileRoute("/repos/$repoId/wt/$worktreeId/diffs")({
+  validateSearch: (search: Record<string, unknown>) =>
+    searchSchema.parse(search),
   component: DiffsView,
-})
+});
 
 function DiffsView() {
-  const { repoId, worktreeId } = Route.useParams()
-  const search = Route.useSearch()
-  const navigate = useNavigate({ from: '/repos/$repoId/wt/$worktreeId/diffs' })
+  const { repoId, worktreeId } = Route.useParams();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: "/repos/$repoId/wt/$worktreeId/diffs" });
 
-  const refsQuery = trpc.git.refs.useQuery({ repoId }, { staleTime: 60_000 })
+  const refsQuery = trpc.git.refs.useQuery({ repoId }, { staleTime: 60_000 });
   const preferencesQuery = trpc.preferences.get.useQuery(undefined, {
     staleTime: Infinity,
-  })
-  const utils = trpc.useUtils()
+  });
+  const utils = trpc.useUtils();
   const setPreferences = trpc.preferences.set.useMutation({
     onSuccess: () => void utils.preferences.get.invalidate(),
-  })
+  });
   const setCompareBase = trpc.preferences.setCompareBase.useMutation({
     onSuccess: () => void utils.preferences.get.invalidate(),
-  })
+  });
 
-  const compareBaseKey = `${repoId}:${worktreeId}`
-  const storedBase = preferencesQuery.data?.compareBases?.[compareBaseKey]
-  const resolvedDefaultBase =
-    storedBase ?? refsQuery.data?.mainBranch ?? null
+  const compareBaseKey = `${repoId}:${worktreeId}`;
+  const storedBase = preferencesQuery.data?.compareBases?.[compareBaseKey];
+  const resolvedDefaultBase = storedBase ?? refsQuery.data?.mainBranch ?? null;
 
   // Normalize the URL as soon as refs + prefs load: base = the persisted
   // compare-base for this worktree (falling back to the repo's main branch),
   // head = working tree. Ref pickers override either side without losing the
   // default on the next visit.
   useEffect(() => {
-    if (!resolvedDefaultBase) return
-    if (search.base) return
+    if (!resolvedDefaultBase) return;
+    if (search.base) return;
     void navigate({
-      to: '/repos/$repoId/wt/$worktreeId/diffs',
+      to: "/repos/$repoId/wt/$worktreeId/diffs",
       params: { repoId, worktreeId },
       search: {
         base: resolvedDefaultBase,
@@ -62,13 +69,13 @@ function DiffsView() {
         staged: false,
       },
       replace: true,
-    })
-  }, [resolvedDefaultBase, search.base, navigate, repoId, worktreeId])
+    });
+  }, [resolvedDefaultBase, search.base, navigate, repoId, worktreeId]);
 
-  const base = search.base ?? resolvedDefaultBase ?? 'HEAD'
-  const headParam = search.head ?? WORKING_TREE
-  const headForQuery = headParam === WORKING_TREE ? null : headParam
-  const staged = search.staged ?? false
+  const base = search.base ?? resolvedDefaultBase ?? "HEAD";
+  const headParam = search.head ?? WORKING_TREE;
+  const headForQuery = headParam === WORKING_TREE ? null : headParam;
+  const staged = search.staged ?? false;
 
   const diffQuery = trpc.git.diff.useQuery(
     { repoId, worktreeId, base, head: headForQuery, staged },
@@ -76,40 +83,49 @@ function DiffsView() {
       enabled: !!refsQuery.data,
       staleTime: 10_000,
     },
-  )
+  );
 
-  const mode: DiffMode = preferencesQuery.data?.diffMode ?? 'unified'
+  const mode: DiffMode = preferencesQuery.data?.diffMode ?? "unified";
 
-  const headValue = headForQuery // null when working tree
+  const headValue = headForQuery; // null when working tree
 
   const rangeLabel = useMemo(() => {
-    if (headForQuery === null) return staged ? 'staged' : 'working tree'
-    return `${base} → ${headForQuery}`
-  }, [base, headForQuery, staged])
+    if (headForQuery === null) return staged ? "staged" : "working tree";
+    return `${base} → ${headForQuery}`;
+  }, [base, headForQuery, staged]);
 
-  const cacheKey = `${repoId}:${worktreeId}:${base}:${headForQuery ?? 'wt'}:${staged ? 's' : ''}`
-  const parsed = useDiffFiles(diffQuery.data?.patch ?? '', cacheKey)
+  const cacheKey = `${repoId}:${worktreeId}:${base}:${headForQuery ?? "wt"}:${staged ? "s" : ""}`;
+  const parsed = useDiffFiles(diffQuery.data?.patch ?? "", cacheKey);
 
-  const diffViewRef = useRef<DiffViewHandle>(null)
-  const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  const [ui, updateUi] = useWorktreeUI(repoId, worktreeId);
+  const initialScrollTop = ui.diffs.scroll[cacheKey] ?? 0;
+  const persistScroll = (top: number): void => {
+    updateUi((prev) => ({
+      ...prev,
+      diffs: { scroll: { ...prev.diffs.scroll, [cacheKey]: top } },
+    }));
+  };
+
+  const diffViewRef = useRef<DiffViewHandle>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   // Reset selection when the file set changes (new ref/base combo).
   useEffect(() => {
-    setActiveIndex(null)
-  }, [cacheKey])
+    setActiveIndex(null);
+  }, [cacheKey]);
 
   const handleSelect = (index: number) => {
-    setActiveIndex(index)
-    diffViewRef.current?.scrollToFile(index)
-  }
+    setActiveIndex(index);
+    diffViewRef.current?.scrollToFile(index);
+  };
 
   const handleOpenFile = (path: string) => {
     void navigate({
-      to: '/repos/$repoId/wt/$worktreeId/files',
+      to: "/repos/$repoId/wt/$worktreeId/files",
       params: { repoId, worktreeId },
       search: { p: path },
-    })
-  }
+    });
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -119,14 +135,14 @@ function DiffsView() {
           refs={refsQuery.data?.refs ?? []}
           value={base}
           onChange={(next) => {
-            const value = next ?? base
-            setCompareBase.mutate({ key: compareBaseKey, base: value })
+            const value = next ?? base;
+            setCompareBase.mutate({ key: compareBaseKey, base: value });
             void navigate({
-              to: '/repos/$repoId/wt/$worktreeId/diffs',
+              to: "/repos/$repoId/wt/$worktreeId/diffs",
               params: { repoId, worktreeId },
               search: { ...search, base: value },
               replace: true,
-            })
+            });
           }}
         />
         <RefPicker
@@ -136,7 +152,7 @@ function DiffsView() {
           allowWorkingTree
           onChange={(next) =>
             void navigate({
-              to: '/repos/$repoId/wt/$worktreeId/diffs',
+              to: "/repos/$repoId/wt/$worktreeId/diffs",
               params: { repoId, worktreeId },
               search: {
                 ...search,
@@ -153,7 +169,7 @@ function DiffsView() {
               checked={staged}
               onChange={(e) =>
                 void navigate({
-                  to: '/repos/$repoId/wt/$worktreeId/diffs',
+                  to: "/repos/$repoId/wt/$worktreeId/diffs",
                   params: { repoId, worktreeId },
                   search: { ...search, staged: e.target.checked },
                   replace: true,
@@ -200,11 +216,14 @@ function DiffsView() {
                 parsed={parsed}
                 mode={mode}
                 onOpenFile={handleOpenFile}
+                scrollKey={cacheKey}
+                initialScrollTop={initialScrollTop}
+                onScrollPersist={persistScroll}
               />
             </div>
           </>
         )}
       </div>
     </div>
-  )
+  );
 }

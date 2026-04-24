@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { cn } from "@renderer/lib/cn";
+import { useWorktreeUI } from "@renderer/lib/worktree-ui-state";
 
 export const Route = createFileRoute("/repos/$repoId/wt/$worktreeId")({
   component: WorktreeLayout,
@@ -7,6 +8,18 @@ export const Route = createFileRoute("/repos/$repoId/wt/$worktreeId")({
 
 function WorktreeLayout() {
   const { repoId, worktreeId } = Route.useParams();
+  const [ui] = useWorktreeUI(repoId, worktreeId);
+
+  // Bare Link elements drop search params on navigation, so clicking Files
+  // after having a file open would land on an empty view. We rehydrate the
+  // last-known selection from the per-worktree UI store so tab hops feel
+  // stateful without coupling the layout to each child's URL schema.
+  const filesSearch = ui.files.activePath
+    ? { p: ui.files.activePath }
+    : undefined;
+  const commitsSearch = ui.commits.selectedSha
+    ? { sha: ui.commits.selectedSha }
+    : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -14,6 +27,7 @@ function WorktreeLayout() {
         <Link
           to="/repos/$repoId/wt/$worktreeId/files"
           params={{ repoId, worktreeId }}
+          search={filesSearch}
           className={tabIdleClass}
           activeProps={{ className: tabActiveClass }}
         >
@@ -30,6 +44,7 @@ function WorktreeLayout() {
         <Link
           to="/repos/$repoId/wt/$worktreeId/commits"
           params={{ repoId, worktreeId }}
+          search={commitsSearch}
           className={tabIdleClass}
           activeProps={{ className: tabActiveClass }}
         >

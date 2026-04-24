@@ -12,6 +12,7 @@ import {
   useRegisterCapture,
   type CaptureTarget,
 } from "@renderer/lib/capture-context";
+import { useWorktreeUI } from "@renderer/lib/worktree-ui-state";
 
 const searchSchema = z.object({
   sha: z.string().optional(),
@@ -33,6 +34,8 @@ function CommitsView() {
 
   const fullHistory = search.full ?? false;
   const selectedSha = search.sha ?? null;
+
+  const [ui, updateUi] = useWorktreeUI(repoId, worktreeId);
 
   const refsQuery = trpc.git.refs.useQuery({ repoId }, { staleTime: 60_000 });
   const preferencesQuery = trpc.preferences.get.useQuery(undefined, {
@@ -99,14 +102,27 @@ function CommitsView() {
     (selectedSha === "wt" && !!workingTreeSummary) ||
     commits.some((c) => c.sha === selectedSha || c.shortSha === selectedSha);
 
+  // Prefer the store's remembered sha on first entry (URL has no ?sha yet)
+  // as long as it still exists in the current list — this is how tab hops
+  // and app restarts restore the last-viewed commit.
+  const storedSha = ui.commits.selectedSha;
+  const storedShaIsValid =
+    storedSha !== null &&
+    (storedSha === "wt"
+      ? !!workingTreeSummary
+      : commits.some((c) => c.sha === storedSha || c.shortSha === storedSha));
+
   useEffect(() => {
-    if (selectedSha === null && firstRowId !== null) {
-      void navigate({
-        to: "/repos/$repoId/wt/$worktreeId/commits",
-        params: { repoId, worktreeId },
-        search: { ...search, sha: firstRowId },
-        replace: true,
-      });
+    if (selectedSha === null) {
+      const candidate = storedShaIsValid ? storedSha : firstRowId;
+      if (candidate !== null) {
+        void navigate({
+          to: "/repos/$repoId/wt/$worktreeId/commits",
+          params: { repoId, worktreeId },
+          search: { ...search, sha: candidate },
+          replace: true,
+        });
+      }
       return;
     }
     if (selectedSha !== null && !selectionIsValid && firstRowId !== null) {
@@ -121,6 +137,8 @@ function CommitsView() {
     selectedSha,
     firstRowId,
     selectionIsValid,
+    storedSha,
+    storedShaIsValid,
     navigate,
     repoId,
     worktreeId,
@@ -129,6 +147,18 @@ function CommitsView() {
 
   const normalizedSelection: string | null =
     selectedSha && selectionIsValid ? selectedSha : null;
+
+  // Mirror the resolved selection back into the store so tab hops and app
+  // restarts resume here. Skip when it already matches to avoid a write
+  // loop through the hook's notify → re-render path.
+  useEffect(() => {
+    if (normalizedSelection === null) return;
+    if (ui.commits.selectedSha === normalizedSelection) return;
+    updateUi((prev) => ({
+      ...prev,
+      commits: { selectedSha: normalizedSelection },
+    }));
+  }, [normalizedSelection, ui.commits.selectedSha, updateUi]);
 
   const selectedCommit = useMemo(
     () =>
@@ -234,6 +264,10 @@ function CommitsView() {
   };
 
   const onToggleFullHistory = (next: boolean): void => {
+    updateUi((prev) => ({
+      ...prev,
+      commits: { selectedSha: null },
+    }));
     void navigate({
       to: "/repos/$repoId/wt/$worktreeId/commits",
       params: { repoId, worktreeId },
