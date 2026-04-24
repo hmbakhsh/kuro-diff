@@ -1,4 +1,6 @@
 import { useCallback, type DragEvent } from 'react'
+import { Link } from '@tanstack/react-router'
+import { Settings as SettingsIcon } from 'lucide-react'
 import { trpc } from '@renderer/trpc'
 import { cn } from '@renderer/lib/cn'
 import { RepoNode } from './RepoNode'
@@ -78,6 +80,22 @@ export function WorkspaceSidebar({
 
       <div className="border-t border-black/10 p-1.5 dark:border-white/10">
         <AddRepoButton />
+        <Link
+          to="/settings"
+          className={cn(
+            'drag-none mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-xs',
+            'text-zinc-600 hover:bg-black/5 dark:text-zinc-300 dark:hover:bg-white/5',
+          )}
+          activeProps={{
+            className: cn(
+              'mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-xs',
+              'bg-black/10 text-zinc-900 dark:bg-white/10 dark:text-zinc-100',
+            ),
+          }}
+        >
+          <SettingsIcon className="size-3.5" strokeWidth={2.25} />
+          <span>Settings</span>
+        </Link>
       </div>
     </aside>
   )
