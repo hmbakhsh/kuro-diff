@@ -4,6 +4,7 @@ import {
   ChevronRight,
   FolderOpen,
   GitBranch,
+  GitPullRequest,
   Terminal,
 } from 'lucide-react'
 import { trpc } from '@renderer/trpc'
@@ -45,6 +46,10 @@ function WorktreeBreadcrumb({ repoId, worktreeId }: WorktreeBreadcrumbProps) {
 
   const repoName = repos.data?.find((r) => r.id === repoId)?.name ?? '…'
   const worktree = worktrees.data?.find((w) => w.id === worktreeId)
+  const branch =
+    worktree && !worktree.detached
+      ? worktree.branch?.replace('refs/heads/', '') ?? null
+      : null
 
   return (
     <div
@@ -57,10 +62,63 @@ function WorktreeBreadcrumb({ repoId, worktreeId }: WorktreeBreadcrumbProps) {
       <ChevronRight className="size-3.5 shrink-0 text-zinc-400" strokeWidth={2} />
       <BranchLabel worktree={worktree ?? null} />
       <div className="ml-auto flex items-center gap-2">
+        <ViewPRButton repoId={repoId} branch={branch} />
         <OpenInMenu repoId={repoId} worktreeId={worktreeId} />
         <RateLimitPill />
       </div>
     </div>
+  )
+}
+
+/**
+ * Links out to the remote PR whose head branch matches the current worktree.
+ * Disabled when: no branch (detached HEAD), the branch query is still loading,
+ * or `gh pr list --head` returned nothing. The query is gated on a non-empty
+ * branch so we never fire `gh` with an empty filter.
+ */
+function ViewPRButton({
+  repoId,
+  branch,
+}: {
+  repoId: string
+  branch: string | null
+}) {
+  const query = trpc.github.prForBranch.useQuery(
+    { repoId, branch: branch ?? '' },
+    { enabled: !!branch, staleTime: 60_000 },
+  )
+  const openExternal = trpc.github.openExternal.useMutation()
+
+  const pr = query.data ?? null
+  const disabled = !branch || query.isLoading || !pr || openExternal.isPending
+  const title = !branch
+    ? 'No branch (detached HEAD)'
+    : query.isLoading
+      ? 'Checking for PR…'
+      : !pr
+        ? 'No PR for this branch'
+        : `View PR #${pr.number} on GitHub`
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (pr) openExternal.mutate({ url: pr.url })
+      }}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className={cn(
+        'drag-none flex h-6 items-center gap-1 rounded-md px-2 text-[12px] text-zinc-500',
+        'hover:bg-black/5 hover:text-zinc-900',
+        'dark:hover:bg-white/10 dark:hover:text-zinc-100',
+        'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-500',
+        'dark:disabled:hover:bg-transparent dark:disabled:hover:text-zinc-500',
+      )}
+    >
+      <GitPullRequest className="size-3.5 shrink-0" strokeWidth={2} />
+      <span>View PR</span>
+    </button>
   )
 }
 

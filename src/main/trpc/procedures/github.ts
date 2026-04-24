@@ -23,6 +23,11 @@ const prNumberInput = z.object({
   number: z.number().int().positive(),
 })
 
+const prForBranchInput = z.object({
+  repoId: z.string().uuid(),
+  branch: z.string().min(1).max(255),
+})
+
 const ALLOWED_EXTERNAL_HOSTS = new Set([
   'github.com',
   'cli.github.com',
@@ -205,6 +210,38 @@ export const githubRouter = router({
         const prs = await runGhJson<GhPRSummary[] | null>(args)
         return prs ?? []
       } catch (err) {
+        throw wrapGhError(err)
+      }
+    }),
+
+  prForBranch: publicProcedure
+    .input(prForBranchInput)
+    .query(async ({ input }): Promise<GhPRSummary | null> => {
+      // Title bar button: silently degrade to null when gh isn't set up or
+      // the repo has no GitHub remote. The caller greys out the button in
+      // those cases; surfacing errors here would light up every repo.
+      if (!hasGhBinary()) return null
+      const info = await ensureGitHubRepo(input.repoId).catch(() => null)
+      if (!info) return null
+      const args = [
+        'pr',
+        'list',
+        '--repo',
+        nwo(info),
+        '--state',
+        'all',
+        '--head',
+        input.branch,
+        '--limit',
+        '1',
+        '--json',
+        'number,title,author,labels,state,isDraft,createdAt,updatedAt,headRefName,baseRefName,url',
+      ]
+      try {
+        const prs = await runGhJson<GhPRSummary[] | null>(args)
+        return prs?.[0] ?? null
+      } catch (err) {
+        if (err instanceof GhError && err.kind === 'unauthenticated') return null
         throw wrapGhError(err)
       }
     }),
