@@ -1,0 +1,19 @@
+# deps & build output
+node_modules
+out
+release
+dist
+.vite-inspect
+.tanstack
+
+# generated code
+src/renderer/src/routeTree.gen.ts
+
+# editor/os
+.DS_Store
+*.log
+
+# env
+.env
+.env.local
+.env.*.local

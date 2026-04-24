@@ -1,0 +1,42 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    background: transparent;
+    color: rgb(var(--fg) / 1);
+  }
+
+  :root {
+    --fg: 24 24 27;
+    --bg: 255 255 255;
+    --muted: 120 120 128;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: 244 244 245;
+      --bg: 20 20 22;
+      --muted: 155 155 165;
+    }
+  }
+
+  /* Drag region for the macOS title bar. Individual controls override with
+     `-webkit-app-region: no-drag` via `drag-none` utility. */
+  .titlebar-drag {
+    -webkit-app-region: drag;
+  }
+  .drag-none {
+    -webkit-app-region: no-drag;
+  }
+}
