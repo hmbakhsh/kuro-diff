@@ -104,20 +104,17 @@ export function FileTree({
       config: {
         onPrimaryAction: (item) => {
           if (item.isFolder()) return
-          const id = item.getId()
-          if (ignoredSet.has(id)) return
-          onSelectRef.current(id)
+          onSelectRef.current(item.getId())
         },
         setSelectedItems: (ids) => {
           if (ids.length !== 1) return
           const id = ids[0]!
           if (id === selectedPathRef.current) return
-          if (ignoredSet.has(id)) return
           if (sortedFiles.includes(id)) onSelectRef.current(id)
         },
       },
     }
-  }, [sortedFiles, ignoredSet])
+  }, [sortedFiles])
 
   useEffect(() => {
     const container = containerRef.current
@@ -132,9 +129,10 @@ export function FileTree({
     }
   }, [options])
 
-  // Dim items whose path equals, or sits under, any ignored prefix. We inject
-  // a single stylesheet into Pierre's shadow root — CSS selectors survive
-  // Preact re-renders (expand/collapse, selection) without DOM mutation.
+  // Dim items whose path equals, or sits under, any ignored prefix. Injected
+  // as a single adopted stylesheet on Pierre's shadow root — CSS selectors
+  // survive Preact re-renders (expand/collapse) without DOM mutation. We also
+  // push a `:host` density sheet that shrinks font, row height, and spacing.
   const ignoredCss = useMemo(
     () => buildIgnoredCss(ignoredPrefixes),
     [ignoredPrefixes],
@@ -146,13 +144,21 @@ export function FileTree({
       'pierre-file-tree',
     ) as HTMLElement | null
     const shadow = pierreEl?.shadowRoot
-    if (!shadow || !ignoredCss) return
-    const sheet = new CSSStyleSheet()
-    sheet.replaceSync(ignoredCss)
-    shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet]
+    if (!shadow) return
+
+    const sheets: CSSStyleSheet[] = []
+    const density = new CSSStyleSheet()
+    density.replaceSync(DENSITY_CSS)
+    sheets.push(density)
+    if (ignoredCss) {
+      const marker = new CSSStyleSheet()
+      marker.replaceSync(ignoredCss)
+      sheets.push(marker)
+    }
+    shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, ...sheets]
     return () => {
       shadow.adoptedStyleSheets = shadow.adoptedStyleSheets.filter(
-        (s) => s !== sheet,
+        (s) => !sheets.includes(s),
       )
     }
   }, [ignoredCss, options])
@@ -162,17 +168,38 @@ export function FileTree({
   )
 }
 
+/**
+ * Overrides Pierre's default :host sizing. Lives in an adopted stylesheet so
+ * it reaches the shadow root (host CSS can't). Appended after Pierre's own
+ * sheet, equal specificity, so it wins.
+ */
+const DENSITY_CSS = `:host {
+  font-size: 11px;
+  --ft-row-height: 22px;
+  --ft-level-gap: 12px;
+  --ft-icon-width: 10px;
+  --ft-item-padding-x: 6px;
+}`
+
 function buildIgnoredCss(prefixes: string[] | undefined): string | null {
   if (!prefixes || prefixes.length === 0) return null
-  const selectors: string[] = []
+  const topLevel: string[] = []
+  const descendants: string[] = []
   for (const p of prefixes) {
-    const exact = CSS.escape(p)
-    const prefix = CSS.escape(`${p}/`)
-    selectors.push(`[data-item-id="${exact}"]`)
-    selectors.push(`[data-item-id^="${prefix}"]`)
+    topLevel.push(`[data-item-id="${CSS.escape(p)}"]`)
+    descendants.push(`[data-item-id^="${CSS.escape(`${p}/`)}"]`)
   }
-  return `${selectors.join(',\n')} {
-    opacity: 0.5;
-    font-style: italic;
-  }`
+  // `color-mix` blends the theme's current color toward transparent — clearly
+  // grey in both light and dark without hardcoded theme values. The badge is
+  // scoped to the top-level ignored entries so descendants stay uncluttered.
+  return `${[...topLevel, ...descendants].join(',\n')} {
+  color: color-mix(in srgb, currentColor 45%, transparent);
+  font-style: italic;
+}
+${topLevel.join(',\n')} [data-item-section='content']::after {
+  content: ' · ignored';
+  font-size: 0.85em;
+  margin-left: 4px;
+  opacity: 0.7;
+}`
 }

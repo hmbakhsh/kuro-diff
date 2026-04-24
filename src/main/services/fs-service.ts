@@ -186,6 +186,77 @@ export interface TreeResult {
   ignoredPrefixes: string[]
 }
 
+// Enumerating every file inside a large `node_modules/` can cost 100–500ms of
+// git + fs work per call. Cache the full and prefix lists per worktree path
+// with a TTL so repeated reads (route remounts, React-Query gc, etc.) don't
+// re-spend it. The cache also invalidates the moment `.gitignore` or
+// `.git/info/exclude` changes, so edits there take effect on the next toggle.
+const IGNORED_TTL_MS = 5 * 60 * 1000
+type IgnoredCacheEntry = {
+  at: number
+  sig: string
+  files: string[]
+  prefixes: string[]
+}
+const ignoredCache = new Map<string, IgnoredCacheEntry>()
+
+/**
+ * Mtime-based fingerprint of the two files that drive ignored-file resolution
+ * at the repo level. Missing files contribute `0`, so creating or deleting
+ * one also bumps the signature.
+ */
+async function gitignoreSignature(repoPath: string): Promise<string> {
+  const files = [
+    join(repoPath, '.gitignore'),
+    join(repoPath, '.git/info/exclude'),
+  ]
+  const mtimes = await Promise.all(
+    files.map(async (f) => {
+      try {
+        return (await stat(f)).mtimeMs
+      } catch {
+        return 0
+      }
+    }),
+  )
+  return mtimes.join(',')
+}
+
+async function getIgnored(repoPath: string): Promise<IgnoredCacheEntry> {
+  const sig = await gitignoreSignature(repoPath)
+  const hit = ignoredCache.get(repoPath)
+  if (hit && hit.sig === sig && Date.now() - hit.at < IGNORED_TTL_MS) return hit
+  const split = (s: string): string[] =>
+    s.split('\0').filter((x) => x.length > 0)
+  const [full, dirs] = await Promise.all([
+    runGit(
+      ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'],
+      { cwd: repoPath },
+    ),
+    runGit(
+      [
+        'ls-files',
+        '--others',
+        '--ignored',
+        '--exclude-standard',
+        '--directory',
+        '-z',
+      ],
+      { cwd: repoPath },
+    ),
+  ])
+  const entry: IgnoredCacheEntry = {
+    at: Date.now(),
+    sig,
+    files: split(full),
+    prefixes: split(dirs).map((p) =>
+      p.endsWith('/') ? p.slice(0, -1) : p,
+    ),
+  }
+  ignoredCache.set(repoPath, entry)
+  return entry
+}
+
 export async function listRepoFiles(
   repoPath: string,
   opts: { includeIgnored?: boolean } = {},
@@ -206,37 +277,22 @@ export async function listRepoFiles(
     return { files: [...all].sort(), ignoredPrefixes: [] }
   }
 
-  // `--directory` collapses fully-ignored folders to a single entry. Avoids
-  // enumerating tens of thousands of files inside `node_modules/` etc., which
-  // dominates both the git call and Pierre's tree-build cost.
-  const [[tracked, untracked], ignoredDirsRaw] = await Promise.all([
+  // Enumerate the full ignored list (so users can drill into `node_modules/`
+  // etc.) alongside a collapsed prefix list (for cheap CSS-selector marking).
+  // Both come from the memoized cache.
+  const [[tracked, untracked], ignored] = await Promise.all([
     trackedAndUntracked,
-    runGit(
-      [
-        'ls-files',
-        '--others',
-        '--ignored',
-        '--exclude-standard',
-        '--directory',
-        '-z',
-      ],
-      { cwd: repoPath },
-    ),
+    getIgnored(repoPath),
   ])
-
   const visible = new Set<string>([...split(tracked), ...split(untracked)])
-  const ignoredPrefixes = split(ignoredDirsRaw)
-    .map((p) => (p.endsWith('/') ? p.slice(0, -1) : p))
-    // Defensive: `--directory` shouldn't collapse a dir that contains tracked
-    // files, but if something slips through, keep the tracked view authoritative.
-    .filter((p) => {
-      if (visible.has(p)) return false
-      const pfx = `${p}/`
-      for (const v of visible) if (v.startsWith(pfx)) return false
-      return true
-    })
-
-  const all = new Set<string>([...visible, ...ignoredPrefixes])
+  // Defensive: drop any ignored prefix that conflicts with a tracked path.
+  const ignoredPrefixes = ignored.prefixes.filter((p) => {
+    if (visible.has(p)) return false
+    const pfx = `${p}/`
+    for (const v of visible) if (v.startsWith(pfx)) return false
+    return true
+  })
+  const all = new Set<string>([...visible, ...ignored.files, ...ignoredPrefixes])
   return { files: [...all].sort(), ignoredPrefixes }
 }
 

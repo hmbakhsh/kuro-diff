@@ -36,11 +36,11 @@ function FilesView() {
   // entries separately keyed by input.
   const treeVisible = trpc.fs.listTree.useQuery(
     { repoId, worktreeId, includeIgnored: false },
-    { staleTime: 60_000 },
+    { staleTime: 5 * 60_000, gcTime: 30 * 60_000 },
   )
   const treeWithIgnored = trpc.fs.listTree.useQuery(
     { repoId, worktreeId, includeIgnored: true },
-    { staleTime: 60_000 },
+    { staleTime: 5 * 60_000, gcTime: 30 * 60_000 },
   )
   const tree = showIgnored ? treeWithIgnored : treeVisible
 
