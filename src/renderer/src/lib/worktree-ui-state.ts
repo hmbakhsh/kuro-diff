@@ -77,7 +77,6 @@ function scheduleFlush(): void {
       }
     }
     pendingWrites.clear();
-    for (const fn of listeners) fn();
   };
   // Group rapid updates (a scroll burst) into a single write. rAF is cheap
   // and doesn't need a timer fallback since the renderer is always active.
@@ -122,6 +121,31 @@ export function setWorktreeUI(
   const next =
     typeof updater === "function" ? updater(prev) : mergeState(prev, updater);
   write(key, next);
+}
+
+// Diff scroll positions fire dozens of times per second; routing them through
+// `setWorktreeUI` would notify every subscriber (WorktreeLayout, other tabs
+// via useWorktreeUI) and cause the parent tree to re-render mid-scroll —
+// that in turn thrashes Pierre's Virtualizer and paints blank placeholders.
+// Nothing reads scroll reactively (it's only pulled once on mount per
+// cacheKey), so we update the cache + queue a localStorage flush without
+// notifying. The next non-silent write will carry this value along to
+// subscribers if they happen to read.
+export function setWorktreeUIScroll(
+  repoId: string,
+  worktreeId: string,
+  cacheKey: string,
+  top: number,
+): void {
+  const key = keyFor(repoId, worktreeId);
+  const prev = read(key);
+  const next: WorktreeUIState = {
+    ...prev,
+    diffs: { scroll: { ...prev.diffs.scroll, [cacheKey]: top } },
+  };
+  pendingWrites.set(key, next);
+  cache.set(key, { raw: JSON.stringify(next), value: next });
+  scheduleFlush();
 }
 
 function mergeState(

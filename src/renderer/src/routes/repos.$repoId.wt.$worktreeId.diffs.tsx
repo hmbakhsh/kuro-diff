@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { trpc } from "@renderer/trpc";
@@ -13,7 +13,10 @@ import {
 } from "@renderer/components/diffs/DiffView";
 import { DiffsSidebar } from "@renderer/components/diffs/DiffsSidebar";
 import { useDiffFiles } from "@renderer/components/diffs/useDiffFiles";
-import { useWorktreeUI } from "@renderer/lib/worktree-ui-state";
+import {
+  getWorktreeUI,
+  setWorktreeUIScroll,
+} from "@renderer/lib/worktree-ui-state";
 
 const WORKING_TREE = "__wt__";
 
@@ -77,12 +80,30 @@ function DiffsView() {
   const headForQuery = headParam === WORKING_TREE ? null : headParam;
   const staged = search.staged ?? false;
 
+  const includeUntracked = headForQuery === null && !staged;
   const diffQuery = trpc.git.diff.useQuery(
-    { repoId, worktreeId, base, head: headForQuery, staged },
+    { repoId, worktreeId, base, head: headForQuery, staged, includeUntracked },
     {
       enabled: !!refsQuery.data,
       staleTime: 10_000,
     },
+  );
+
+  // Fetched only when head is the working tree — used to tag rows in the
+  // sidebar whose files are untracked (never added to git) so they render a
+  // distinct `U` badge instead of `A`, which would conflate them with
+  // committed/staged new files.
+  const statusQuery = trpc.git.status.useQuery(
+    { repoId, worktreeId },
+    {
+      enabled: headForQuery === null,
+      staleTime: 5_000,
+      refetchOnWindowFocus: true,
+    },
+  );
+  const untrackedPaths = useMemo(
+    () => new Set(statusQuery.data?.untracked ?? []),
+    [statusQuery.data],
   );
 
   const mode: DiffMode = preferencesQuery.data?.diffMode ?? "unified";
@@ -97,14 +118,27 @@ function DiffsView() {
   const cacheKey = `${repoId}:${worktreeId}:${base}:${headForQuery ?? "wt"}:${staged ? "s" : ""}`;
   const parsed = useDiffFiles(diffQuery.data?.patch ?? "", cacheKey);
 
-  const [ui, updateUi] = useWorktreeUI(repoId, worktreeId);
-  const initialScrollTop = ui.diffs.scroll[cacheKey] ?? 0;
-  const persistScroll = (top: number): void => {
-    updateUi((prev) => ({
-      ...prev,
-      diffs: { scroll: { ...prev.diffs.scroll, [cacheKey]: top } },
-    }));
-  };
+  // Scroll persistence is write-heavy (fires on every scroll event) and
+  // nothing reads it reactively — we only pull the value once per cacheKey
+  // when DiffView mounts. Subscribing via the hook would re-render this
+  // route (and its parent layout) 60× per second during a scroll burst,
+  // which thrashed Pierre's Virtualizer into rendering blank placeholders.
+  // Stash the initial value per cacheKey in a ref so switching base/head
+  // still honors stored positions, and route writes through the silent
+  // setter that updates localStorage without notifying subscribers.
+  const initialScrollByKey = useRef<Record<string, number>>({});
+  if (!(cacheKey in initialScrollByKey.current)) {
+    initialScrollByKey.current[cacheKey] =
+      getWorktreeUI(repoId, worktreeId).diffs.scroll[cacheKey] ?? 0;
+  }
+  const initialScrollTop = initialScrollByKey.current[cacheKey];
+
+  const persistScroll = useCallback(
+    (top: number): void => {
+      setWorktreeUIScroll(repoId, worktreeId, cacheKey, top);
+    },
+    [repoId, worktreeId, cacheKey],
+  );
 
   const diffViewRef = useRef<DiffViewHandle>(null);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -119,13 +153,19 @@ function DiffsView() {
     diffViewRef.current?.scrollToFile(index);
   };
 
-  const handleOpenFile = (path: string) => {
-    void navigate({
-      to: "/repos/$repoId/wt/$worktreeId/files",
-      params: { repoId, worktreeId },
-      search: { p: path },
-    });
-  };
+  // Memoized so DiffView's `renderHeaderMetadata` memo stays stable across
+  // re-renders — an unstable reference invalidates every FileDiff's props
+  // inside the Virtualizer.
+  const handleOpenFile = useCallback(
+    (path: string) => {
+      void navigate({
+        to: "/repos/$repoId/wt/$worktreeId/files",
+        params: { repoId, worktreeId },
+        search: { p: path },
+      });
+    },
+    [navigate, repoId, worktreeId],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -209,6 +249,7 @@ function DiffsView() {
               activeIndex={activeIndex}
               onSelect={handleSelect}
               binaryCount={parsed.binaryCount}
+              untrackedPaths={untrackedPaths}
             />
             <div className="min-w-0 flex-1">
               <DiffView
