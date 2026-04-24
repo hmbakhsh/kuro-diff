@@ -502,8 +502,8 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 ### Functional Requirements
 
 - [ ] App launches in <2s on an M2 MacBook Air with 5 repos added
-- [ ] `Cmd+O` and drag-and-drop both add a repo, with worktrees auto-discovered
-- [ ] Sidebar groups worktrees under their main repo; active repo is visually distinguished
+- [x] `Cmd+O` and drag-and-drop both add a repo, with worktrees auto-discovered
+- [x] Sidebar groups worktrees under their main repo; active repo is visually distinguished
 - [ ] File viewer renders any text file under 2MB with syntax highlighting in <200ms
 - [ ] Files > 2MB and binary files show gated/placeholder views
 - [ ] Diff viewer supports working-tree, commit-range, and PR diffs via one component
@@ -532,7 +532,7 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 
 - [x] Every tRPC procedure has a zod input schema
 - [ ] Every main-process error is mapped to a user-visible state (no silent failures)
-- [ ] Every long-running subprocess has a 30s timeout
+- [x] Every long-running subprocess has a 30s timeout
 - [ ] TypeScript `strict: true` across all three tsconfigs
 - [ ] `electron-builder` audit passes (no unsigned native deps)
 - [ ] Manual test scenarios (above) executed and documented before v1.0 tag

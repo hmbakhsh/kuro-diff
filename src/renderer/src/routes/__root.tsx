@@ -1,33 +1,25 @@
-import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
-import { cn } from '@renderer/lib/cn'
+import { useState } from 'react'
+import { createRootRoute, Outlet } from '@tanstack/react-router'
+import { WorkspaceSidebar } from '@renderer/components/workspace/WorkspaceSidebar'
 
 export const Route = createRootRoute({
   component: RootLayout,
 })
 
 function RootLayout() {
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(null)
+
   return (
-    <div className="flex h-full flex-col">
-      <header
-        className={cn(
-          'titlebar-drag flex h-11 shrink-0 items-center gap-2 border-b border-black/10 px-3 pl-20 text-xs dark:border-white/10',
-        )}
-      >
-        <div className="text-muted-foreground font-medium tracking-wide">
-          kuro-diff
+    <div className="flex h-full min-h-0">
+      <WorkspaceSidebar
+        activeRepoId={activeRepoId}
+        onSelectRepo={setActiveRepoId}
+      />
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="titlebar-drag h-11 shrink-0 border-b border-black/10 dark:border-white/10" />
+        <div className="flex-1 overflow-hidden">
+          <Outlet />
         </div>
-        <nav className="drag-none ml-6 flex items-center gap-4">
-          <Link
-            to="/"
-            activeProps={{ className: 'text-foreground font-medium' }}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            Welcome
-          </Link>
-        </nav>
-      </header>
-      <main className="flex-1 overflow-hidden">
-        <Outlet />
       </main>
     </div>
   )
