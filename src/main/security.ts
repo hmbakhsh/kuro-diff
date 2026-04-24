@@ -25,8 +25,11 @@ export function installContentSecurityPolicy(): void {
 
   const rendererUrl = process.env.ELECTRON_RENDERER_URL
   if (rendererUrl) {
-    // Vite dev server + HMR require eval for source maps and ws for reload.
-    directives['script-src']!.push("'unsafe-eval'")
+    // Vite dev server + HMR need:
+    //  - 'unsafe-eval' for source maps / module evaluation
+    //  - 'unsafe-inline' for @vitejs/plugin-react's preamble script (inline)
+    //  - ws: for HMR
+    directives['script-src']!.push("'unsafe-eval'", "'unsafe-inline'")
     directives['connect-src']!.push('ws:', 'http://localhost:*', 'ws://localhost:*')
     directives['style-src']!.push('http://localhost:*')
   }

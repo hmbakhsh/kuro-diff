@@ -21,6 +21,9 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@pierre/diffs": "1.1.19",
+    "@pierre/file-tree": "0.0.1-beta.1",
+    "@pierre/theme": "^0.0.29",
     "@tanstack/react-query": "^5.100.0",
     "@tanstack/react-router": "^1.168.0",
     "@trpc/client": "^11.0.0",
@@ -31,6 +34,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.0.4",
     "electron-store": "^11.0.2",
+    "ignore": "^7.0.5",
     "lucide-react": "^0.577.0",
     "next-themes": "^0.4.6",
     "react": "^19.1.0",

@@ -71,16 +71,28 @@ Do not "fix" these back to the plan text without understanding why they changed:
 **Non-Functional Requirements** (in "Acceptance Criteria"):
 - Renderer hardened defaults ✅
 - Electron ASAR-integrity patched ✅
-- CSP blocks `unsafe-eval` in prod ✅
+- CSP blocks `unsafe-eval` in prod ✅ (dev CSP also needs `'unsafe-inline'` for @vitejs/plugin-react preamble — prod unaffected)
 
 **Functional Requirements:**
 - `Cmd+O` + drag-and-drop add repo with worktree discovery ✅
 - Sidebar groups worktrees under main repo ✅
+- File viewer renders text files with syntax highlighting ✅
+- Large-file / binary / image viewers in place ✅
+- Find-in-file (Cmd+F) overlay ✅
 - Everything else pending
 
 **Quality Gates:**
 - Every tRPC procedure has zod input schema ✅
 - Every long-running subprocess has 30s timeout ✅
+
+### Phase 3 decisions (shipped)
+
+1. **Pierre React `<FileTree>` is unusable in CSR-only Electron.** It relies on declarative Shadow DOM (`<template shadowrootmode="open">`) which browsers only attach during the initial HTML parse. `dangerouslySetInnerHTML` after hydration silently no-ops, so the React wrapper throws `useFileTreeInstance: No file tree element found in the container` immediately on mount. We use the vanilla `FileTree` class from `@pierre/file-tree` (top-level export, not `/react`) and drive it from a plain React effect. See `src/renderer/src/components/files/FileTree.tsx`. This is the plan's documented risk #1 — didn't need the headless-tree fallback, but the React wrapper is not the path.
+2. **StrictMode is off.** Pierre's Preact 11 beta tree doesn't survive React StrictMode's double-mount cleanly. The second mount rendered an empty tree. Removed from `main.tsx`.
+3. **`<File>` component from `@pierre/diffs/react` works fine** — its ref callback hydrates without requiring pre-existing shadow markup, unlike the file-tree equivalent. Used directly with `disableWorkerPool` (no `<WorkerPoolContextProvider>` until Phase 4 diff viewer needs it).
+4. **Find-in-file overlay ships with line-level navigation only.** Full `<mark data-search-hit>` DOM wrapping (plan §A.10) is deferred: Pierre's Shadow DOM re-renders on scroll, so invasive mark-injection would fight the renderer. Line-level jump via `[data-line="..."]` covers the 95% case.
+5. **`ignore` package was installed but not yet used.** `.gitignore` filtering comes free in `git ls-files --others --exclude-standard`, which is what `fs.listTree` uses. Tracked + untracked (minus ignored) is what the viewer should show; dotfile toggle comes in Phase 6 with preferences.
+6. **File read uses NUL-byte sniff for binary detection.** First 8KB — same heuristic git's `buffer_is_binary` uses. Cleaner than trusting the extension, which matters for files like minified `.js` or ambiguous text files.
 
 ## Problem Statement
 
@@ -572,8 +584,8 @@ Manual (no automated Electron harness for MVP — spec for human verification):
 - [ ] App launches in <2s on an M2 MacBook Air with 5 repos added
 - [x] `Cmd+O` and drag-and-drop both add a repo, with worktrees auto-discovered
 - [x] Sidebar groups worktrees under their main repo; active repo is visually distinguished
-- [ ] File viewer renders any text file under 2MB with syntax highlighting in <200ms
-- [ ] Files > 2MB and binary files show gated/placeholder views
+- [x] File viewer renders any text file under 2MB with syntax highlighting in <200ms
+- [x] Files > 2MB and binary files show gated/placeholder views
 - [ ] Diff viewer supports working-tree, commit-range, and PR diffs via one component
 - [ ] Base/head picker typeahead-searches local branches, tags, and `origin/*` remotes
 - [ ] Unified/split toggle persists globally
