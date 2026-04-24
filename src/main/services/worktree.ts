@@ -1,6 +1,15 @@
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { runGit } from './git-service.js'
 import type { Worktree } from '@shared/types'
+
+/**
+ * Short, stable, URL-safe id for a worktree. Keyed on the absolute path so
+ * it survives branch checkouts and repo re-adds.
+ */
+export function worktreeIdFromPath(path: string): string {
+  return createHash('sha1').update(path).digest('base64url').slice(0, 10)
+}
 
 /**
  * Parse `git worktree list --porcelain -z` output.
@@ -79,6 +88,7 @@ function parseRecord(record: string, isPrimary: boolean): Worktree | null {
   if (!path || !head) return null
 
   return {
+    id: worktreeIdFromPath(path),
     path,
     head,
     branch,

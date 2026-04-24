@@ -11,6 +11,8 @@ export interface WorkspaceRepo {
 }
 
 export interface Worktree {
+  /** Short stable id (first 10 chars of a sha1 of the path). URL-safe. */
+  readonly id: string
   readonly path: string
   readonly head: string
   readonly branch: string | null
@@ -26,6 +28,12 @@ export interface DiffRef {
   readonly base: string
   /** `null` = working tree (uncommitted). */
   readonly head: string | null
+}
+
+export interface GitRef {
+  readonly name: string
+  readonly sha: string
+  readonly kind: 'branch' | 'remote' | 'tag'
 }
 
 export interface PRSummary {

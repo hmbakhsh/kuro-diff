@@ -14,6 +14,9 @@ type StoreSchema = {
     diffMode: 'unified' | 'split'
     font: string
     copyPreset: 'markdown-fence' | 'claude-xml'
+    showIgnoredFiles: boolean
+    /** Per-worktree compare base. Key: `${repoId}:${worktreeId}`. */
+    compareBases: Record<string, string>
   }
   window: {
     bounds?: { x?: number; y?: number; width: number; height: number }
@@ -32,6 +35,8 @@ const DEFAULTS: StoreSchema = {
     diffMode: 'unified',
     font: 'JetBrains Mono',
     copyPreset: 'markdown-fence',
+    showIgnoredFiles: false,
+    compareBases: {},
   },
   window: {
     sidebarWidth: 240,
@@ -89,6 +94,28 @@ export async function removeRepoById(id: string): Promise<void> {
 
 export async function getPreferences(): Promise<StoreSchema['preferences']> {
   return (await load()).get('preferences')
+}
+
+export async function setPreferences(
+  patch: Partial<StoreSchema['preferences']>,
+): Promise<StoreSchema['preferences']> {
+  const store = await load()
+  const current = { ...DEFAULTS.preferences, ...store.get('preferences') }
+  const next = { ...current, ...patch }
+  store.set('preferences', next)
+  return next
+}
+
+export async function setCompareBase(
+  key: string,
+  base: string,
+): Promise<StoreSchema['preferences']> {
+  const store = await load()
+  const current = { ...DEFAULTS.preferences, ...store.get('preferences') }
+  const compareBases = { ...(current.compareBases ?? {}), [key]: base }
+  const next = { ...current, compareBases }
+  store.set('preferences', next)
+  return next
 }
 
 export async function getGitBinaryPath(): Promise<string | undefined> {
