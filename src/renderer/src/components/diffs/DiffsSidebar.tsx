@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react'
 import type { FileDiffMetadata } from '@pierre/diffs'
 import { cn } from '@renderer/lib/cn'
+import { statusBadge, UNTRACKED_BADGE } from './statusBadge'
 
 interface DiffsSidebarProps {
   readonly files: FileDiffMetadata[]
@@ -22,6 +24,16 @@ export function DiffsSidebar({
   binaryCount = 0,
   untrackedPaths,
 }: DiffsSidebarProps) {
+  // Keep the active row visible as scroll-spy updates activeIndex. `nearest`
+  // is a no-op when the row is already in view, so clicking a visible row
+  // doesn't jump the sidebar.
+  const rowRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+  useEffect(() => {
+    if (activeIndex === null) return
+    const el = rowRefs.current.get(activeIndex)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex])
+
   return (
     <div
       className={cn(
@@ -50,6 +62,10 @@ export function DiffsSidebar({
               selected={activeIndex === i}
               onSelect={() => onSelect(i)}
               untracked={untrackedPaths?.has(file.name) ?? false}
+              rowRef={(el) => {
+                if (el) rowRefs.current.set(i, el)
+                else rowRefs.current.delete(i)
+              }}
             />
           ))
         )}
@@ -63,9 +79,10 @@ interface FileRowProps {
   readonly selected: boolean
   readonly onSelect: () => void
   readonly untracked: boolean
+  readonly rowRef: (el: HTMLButtonElement | null) => void
 }
 
-function FileRow({ file, selected, onSelect, untracked }: FileRowProps) {
+function FileRow({ file, selected, onSelect, untracked, rowRef }: FileRowProps) {
   const { label, className } = untracked ? UNTRACKED_BADGE : statusBadge(file.type)
   const baseTitle =
     file.prevName && file.prevName !== file.name
@@ -75,6 +92,7 @@ function FileRow({ file, selected, onSelect, untracked }: FileRowProps) {
 
   return (
     <button
+      ref={rowRef}
       type="button"
       onClick={onSelect}
       title={title}
@@ -105,37 +123,3 @@ function FileRow({ file, selected, onSelect, untracked }: FileRowProps) {
   )
 }
 
-const UNTRACKED_BADGE = {
-  label: 'U',
-  className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-} as const
-
-function statusBadge(type: FileDiffMetadata['type']): {
-  label: string
-  className: string
-} {
-  switch (type) {
-    case 'new':
-      return {
-        label: 'A',
-        className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-      }
-    case 'deleted':
-      return {
-        label: 'D',
-        className: 'bg-red-500/15 text-red-600 dark:text-red-400',
-      }
-    case 'rename-pure':
-    case 'rename-changed':
-      return {
-        label: 'R',
-        className: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
-      }
-    case 'change':
-    default:
-      return {
-        label: 'M',
-        className: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
-      }
-  }
-}

@@ -260,6 +260,7 @@ function DiffsView() {
                 scrollKey={cacheKey}
                 initialScrollTop={initialScrollTop}
                 onScrollPersist={persistScroll}
+                onActiveFileChange={setActiveIndex}
               />
             </div>
           </>

@@ -7,8 +7,8 @@ import {
   useState,
 } from "react";
 import { FileDiff, Virtualizer } from "@pierre/diffs/react";
-import type { FileDiffMetadata } from "@pierre/diffs";
 import { cn } from "@renderer/lib/cn";
+import { DiffFileHeader } from "./DiffFileHeader";
 import type { DiffMode } from "./DiffModeToggle";
 import type { ParsedDiff } from "./useDiffFiles";
 
@@ -32,6 +32,12 @@ interface DiffViewProps {
   scrollKey?: string | null;
   initialScrollTop?: number | null;
   onScrollPersist?: (top: number) => void;
+  /**
+   * Fired as the user scrolls the diff panel, with the index of the file
+   * whose header has crossed the top of the viewport. Used by the sidebar to
+   * auto-highlight the file the user is currently reading.
+   */
+  onActiveFileChange?: (index: number) => void;
 }
 
 export const DiffView = forwardRef<DiffViewHandle, DiffViewProps>(
@@ -44,6 +50,7 @@ export const DiffView = forwardRef<DiffViewHandle, DiffViewProps>(
       scrollKey = null,
       initialScrollTop = null,
       onScrollPersist,
+      onActiveFileChange,
     },
     ref,
   ) {
@@ -105,35 +112,89 @@ export const DiffView = forwardRef<DiffViewHandle, DiffViewProps>(
       };
     }, [scrollKey, initialScrollTop]);
 
+    // Scroll-spy: watch each file wrapper and report the topmost visible file
+    // to the parent so the sidebar can auto-highlight it. A 15%-tall hit strip
+    // at the top of the viewport drives the "active" selection — the file
+    // whose header has reached that strip wins.
+    const onActiveFileChangeRef = useRef(onActiveFileChange);
+    useEffect(() => {
+      onActiveFileChangeRef.current = onActiveFileChange;
+    }, [onActiveFileChange]);
+    const lastActiveRef = useRef<number | null>(null);
+    useEffect(() => {
+      const scroller = getScroller();
+      if (!scroller) return;
+      const fileCount = parsed.files.length;
+      if (fileCount === 0) return;
+
+      lastActiveRef.current = null;
+      const visible = new Set<Element>();
+
+      const report = (): void => {
+        let bestIndex: number | null = null;
+        let bestTop = -Infinity;
+        const scrollerTop = scroller.getBoundingClientRect().top;
+        for (const el of visible) {
+          const top = el.getBoundingClientRect().top - scrollerTop;
+          if (top <= 0 && top > bestTop) {
+            bestTop = top;
+            const raw = (el as HTMLElement).dataset.diffFileIndex;
+            if (raw != null) bestIndex = Number(raw);
+          }
+        }
+        // Fallback: if nothing is above the top line, pick whichever visible
+        // file is closest to the top from below. Avoids a stale highlight
+        // when the first file is still fully below the strip.
+        if (bestIndex === null) {
+          let closest = Infinity;
+          for (const el of visible) {
+            const top = el.getBoundingClientRect().top - scrollerTop;
+            if (top < closest) {
+              closest = top;
+              const raw = (el as HTMLElement).dataset.diffFileIndex;
+              if (raw != null) bestIndex = Number(raw);
+            }
+          }
+        }
+        if (bestIndex !== null && bestIndex !== lastActiveRef.current) {
+          lastActiveRef.current = bestIndex;
+          onActiveFileChangeRef.current?.(bestIndex);
+        }
+      };
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) visible.add(entry.target);
+            else visible.delete(entry.target);
+          }
+          report();
+        },
+        { root: scroller, rootMargin: "0px 0px -85% 0px", threshold: 0 },
+      );
+
+      for (let i = 0; i < fileCount; i++) {
+        const el = fileRefs.current[i];
+        if (el) observer.observe(el);
+      }
+
+      return () => {
+        observer.disconnect();
+      };
+    }, [parsed.files.length, scrollKey]);
+
     const options = useMemo(
       () => ({
         diffStyle: mode,
         diffIndicators: "bars" as const,
         theme: { dark: "github-dark", light: "github-light" } as const,
+        // Pierre's built-in header is disabled — we render our own sticky
+        // <DiffFileHeader> above each <FileDiff> so the title stays pinned
+        // to the top of the diff panel while the user scrolls a long file.
+        disableFileHeader: true,
       }),
       [mode],
     );
-
-    const renderHeaderMetadata = useMemo(() => {
-      if (!onOpenFile) return undefined;
-      return (fileDiff: FileDiffMetadata) => (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenFile(fileDiff.name);
-          }}
-          title={`Open ${fileDiff.name} in Files`}
-          className={cn(
-            "rounded-md px-1.5 py-0.5 text-[10px] font-medium text-zinc-500",
-            "hover:bg-black/10 hover:text-zinc-900",
-            "dark:hover:bg-white/15 dark:hover:text-zinc-100",
-          )}
-        >
-          Open in Files
-        </button>
-      );
-    }, [onOpenFile]);
 
     const { files, binaryCount, binaryPaths, rawSize } = parsed;
 
@@ -226,24 +287,26 @@ export const DiffView = forwardRef<DiffViewHandle, DiffViewProps>(
                     fileRefs.current[i] = el;
                   }}
                   data-diff-file-index={i}
+                  className="relative"
                 >
+                  <DiffFileHeader file={fileDiff} onOpen={onOpenFile} />
                   <FileDiff
                     fileDiff={fileDiff}
                     options={options}
-                    renderHeaderMetadata={renderHeaderMetadata}
                     // Metrics drive virtualizer placeholder heights for
                     // off-screen files. `hunkLineCount` is per-file and
                     // mode-dependent — Pierre pre-computes both unified and
                     // split totals on the parsed metadata so we just pick the
-                    // right one. Layout constants match Pierre's defaults for
-                    // our theme; changing them requires a matching CSS override.
+                    // right one. `diffHeaderHeight` is 0 because Pierre's
+                    // built-in header is disabled (we render our own sticky
+                    // header outside the virtualized `<FileDiff>`).
                     metrics={{
                       hunkLineCount:
                         mode === "split"
                           ? fileDiff.splitLineCount
                           : fileDiff.unifiedLineCount,
                       lineHeight: 20,
-                      diffHeaderHeight: 44,
+                      diffHeaderHeight: 0,
                       hunkSeparatorHeight: 32,
                       fileGap: 8,
                     }}
