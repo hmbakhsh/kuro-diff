@@ -11,18 +11,30 @@ function WorktreeLayout() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <nav className="flex shrink-0 items-center gap-1 border-b border-black/10 px-3 py-1.5 text-[12px] dark:border-white/10">
-        <WorktreeTab
+        <Link
           to="/repos/$repoId/wt/$worktreeId/files"
-          label="Files"
-          repoId={repoId}
-          worktreeId={worktreeId}
-        />
-        <WorktreeTab
+          params={{ repoId, worktreeId }}
+          className={tabIdleClass}
+          activeProps={{ className: tabActiveClass }}
+        >
+          Files
+        </Link>
+        <Link
           to="/repos/$repoId/wt/$worktreeId/diffs"
-          label="Diffs"
-          repoId={repoId}
-          worktreeId={worktreeId}
-        />
+          params={{ repoId, worktreeId }}
+          className={tabIdleClass}
+          activeProps={{ className: tabActiveClass }}
+        >
+          Diffs
+        </Link>
+        <Link
+          to="/repos/$repoId/prs"
+          params={{ repoId }}
+          className={tabIdleClass}
+          activeProps={{ className: tabActiveClass }}
+        >
+          PRs
+        </Link>
       </nav>
       <div className="min-h-0 flex-1">
         <Outlet />
@@ -31,30 +43,12 @@ function WorktreeLayout() {
   )
 }
 
-interface WorktreeTabProps {
-  to: '/repos/$repoId/wt/$worktreeId/files' | '/repos/$repoId/wt/$worktreeId/diffs'
-  label: string
-  repoId: string
-  worktreeId: string
-}
+const tabIdleClass = cn(
+  'rounded-md px-2.5 py-1 text-zinc-500 hover:bg-black/5 hover:text-zinc-900',
+  'dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100',
+)
 
-function WorktreeTab({ to, label, repoId, worktreeId }: WorktreeTabProps) {
-  return (
-    <Link
-      to={to}
-      params={{ repoId, worktreeId }}
-      className={cn(
-        'rounded-md px-2.5 py-1 text-zinc-500 hover:bg-black/5 hover:text-zinc-900',
-        'dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100',
-      )}
-      activeProps={{
-        className: cn(
-          'rounded-md bg-black/10 px-2.5 py-1 text-zinc-900',
-          'dark:bg-white/15 dark:text-zinc-100',
-        ),
-      }}
-    >
-      {label}
-    </Link>
-  )
-}
+const tabActiveClass = cn(
+  'rounded-md bg-black/10 px-2.5 py-1 text-zinc-900',
+  'dark:bg-white/15 dark:text-zinc-100',
+)
