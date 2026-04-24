@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { cn } from '@renderer/lib/cn'
 import { CommitRow, type CommitRowCommit } from './CommitRow'
 import { WorkingTreeRow, type WorkingTreeSummary } from './WorkingTreeRow'
@@ -31,8 +32,33 @@ export function CommitsSidebar({
   isPending,
   fellBackToHead,
 }: CommitsSidebarProps) {
+  const rowIds = useMemo<string[]>(() => {
+    const ids = commits.map((c) => c.sha)
+    return workingTree ? ['wt', ...ids] : ids
+  }, [commits, workingTree])
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (rowIds.length === 0) return
+    const isNext = e.key === 'ArrowDown' || e.key === 'j'
+    const isPrev = e.key === 'ArrowUp' || e.key === 'k'
+    if (!isNext && !isPrev) return
+    e.preventDefault()
+    const idx = selectedId ? rowIds.indexOf(selectedId) : -1
+    const nextIdx = idx < 0 ? 0 : Math.min(rowIds.length - 1, Math.max(0, idx + (isNext ? 1 : -1)))
+    const next = rowIds[nextIdx]
+    if (next) onSelect(next)
+  }
+
   return (
-    <div className="flex h-full w-[320px] shrink-0 flex-col border-r border-black/10 dark:border-white/10">
+    <div
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      className={cn(
+        'flex h-full w-[320px] shrink-0 flex-col border-r border-black/10',
+        'outline-none focus:ring-1 focus:ring-inset focus:ring-black/20',
+        'dark:border-white/10 dark:focus:ring-white/30',
+      )}
+    >
       <div className="shrink-0 space-y-1 border-b border-black/5 px-3 py-2 dark:border-white/5">
         <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-300">
           <input

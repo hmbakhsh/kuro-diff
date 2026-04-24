@@ -332,10 +332,10 @@ A single `useEffect` in `CommitsView` watches the resolved selection + patch and
 
 #### Phase 4 — Polish (~0.5 day)
 
-- `formatRelative` helper and its unit tests.
-- fs-watcher invalidation: emit a lightweight IPC bump from `fs-watcher.ts` → renderer invalidates `git.status`, `git.log`, and the current working-tree-diff query. (Non-blocking for Phase 1–3; without it, polling + focus refetch is acceptable.)
-- Keyboard focus ring on the sidebar; visible focus styling.
-- Pagination "Load more" wired to `fetchNextPage`.
+- [x] `formatRelative` helper (landed in Phase 2).
+- [ ] fs-watcher invalidation (deferred; short `staleTime` + focus refetch covers v1).
+- [x] Keyboard focus ring on the sidebar + arrow-key / j/k navigation.
+- [x] Pagination "Load more" wired to `fetchNextPage`.
 
 **Success criteria:** saving a file in the worktree causes the working-tree row + its diff to update without a manual refresh; the "Load more" button extends long histories smoothly.
 
@@ -392,18 +392,18 @@ A single `useEffect` in `CommitsView` watches the resolved selection + patch and
 
 ### Functional
 
-- [ ] A `Commits` tab appears between `Diffs` and `PRs` on the worktree layout.
-- [ ] The tab's URL is `/repos/$repoId/wt/$worktreeId/commits` with `?sha=` and `?full=` search params.
-- [ ] Sidebar shows commits in `base..HEAD` by default, in reverse chronological order, with short SHA + subject + relative date per row.
-- [ ] A "Working tree" row appears at the top of the sidebar when and only when `git.status` reports a dirty worktree.
-- [ ] "Show full history" toggles between `base..HEAD` and full HEAD log; state is reflected in `?full=`.
-- [ ] Clicking a row loads its delta in the right pane using the existing `DiffView`.
-- [ ] Selecting a row updates the copy-for-agent capture scope so `Cmd-K` → copy-diff copies that row's patch.
-- [ ] The tab's compare-base reads from and mutates the same `preferences.compareBases` store as the Diffs tab.
-- [ ] Deep-linking to `?sha=<valid-sha>` selects that commit on mount.
-- [ ] `?sha=<missing-sha>` falls back to the first row without crashing.
-- [ ] Root-commit diffs render correctly.
-- [ ] Untracked files appear in the working-tree row's diff as new-file patches.
+- [x] A `Commits` tab appears between `Diffs` and `PRs` on the worktree layout.
+- [x] The tab's URL is `/repos/$repoId/wt/$worktreeId/commits` with `?sha=` and `?full=` search params.
+- [x] Sidebar shows commits in `base..HEAD` by default, in reverse chronological order, with short SHA + subject + relative date per row.
+- [x] A "Working tree" row appears at the top of the sidebar when and only when `git.status` reports a dirty worktree.
+- [x] "Show full history" toggles between `base..HEAD` and full HEAD log; state is reflected in `?full=`.
+- [x] Clicking a row loads its delta in the right pane using the existing `DiffView`.
+- [x] Selecting a row updates the copy-for-agent capture scope so `Cmd-K` → copy-diff copies that row's patch.
+- [x] The tab's compare-base reads from and mutates the same `preferences.compareBases` store as the Diffs tab.
+- [x] Deep-linking to `?sha=<valid-sha>` selects that commit on mount.
+- [x] `?sha=<missing-sha>` falls back to the first row without crashing.
+- [x] Root-commit diffs render correctly. (via `git show --format=`)
+- [x] Untracked files appear in the working-tree row's diff as new-file patches.
 
 ### Non-Functional
 
