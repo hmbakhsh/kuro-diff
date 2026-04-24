@@ -26,32 +26,31 @@ function keyFor(repoId: string, worktreeId: string): string {
   return `kuro-diff:ui:${repoId}:${worktreeId}`;
 }
 
-// Cache reads so useSyncExternalStore's `getSnapshot` returns stable
-// references between polls on the same underlying string — React bails out
-// of re-renders when the snapshot identity hasn't changed. Without this
-// cache, every read would allocate a new object and cause infinite renders.
-const cache = new Map<string, { raw: string | null; value: WorktreeUIState }>();
+// In-memory cache is the source of truth for the running renderer. We seed
+// it from localStorage on first read per key; after that, writes update the
+// cache synchronously and localStorage asynchronously (see scheduleFlush).
+//
+// Do NOT revalidate the cache against localStorage on every read: writes
+// notify subscribers before the rAF-queued localStorage flush, so a
+// re-render would see cache.raw (new) !== localStorage (old), drop the
+// cache, and revert the value the user just set — making clicks appear to
+// do nothing until localStorage catches up on the next frame.
+const cache = new Map<string, WorktreeUIState>();
 
 function read(key: string): WorktreeUIState {
-  const raw = (() => {
-    try {
-      return window.localStorage.getItem(key);
-    } catch {
-      return null;
-    }
-  })();
-  const entry = cache.get(key);
-  if (entry && entry.raw === raw) return entry.value;
+  const cached = cache.get(key);
+  if (cached) return cached;
   let value: WorktreeUIState = EMPTY;
-  if (raw !== null) {
-    try {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw !== null) {
       const parsed = stateSchema.safeParse(JSON.parse(raw));
       if (parsed.success) value = parsed.data;
-    } catch {
-      // Malformed JSON — drop it and fall through to EMPTY.
     }
+  } catch {
+    // Unavailable storage or malformed JSON — fall through to EMPTY.
   }
-  cache.set(key, { raw, value });
+  cache.set(key, value);
   return value;
 }
 
@@ -68,9 +67,7 @@ function scheduleFlush(): void {
     flushScheduled = false;
     for (const [key, value] of pendingWrites) {
       try {
-        const raw = JSON.stringify(value);
-        window.localStorage.setItem(key, raw);
-        cache.set(key, { raw, value });
+        window.localStorage.setItem(key, JSON.stringify(value));
       } catch {
         // Quota or disabled storage — the in-memory cache still holds it for
         // the current session.
@@ -97,7 +94,7 @@ function write(key: string, next: WorktreeUIState): void {
   pendingWrites.set(key, next);
   // Update in-memory cache synchronously so subscribers see the new value on
   // the next render even before the write hits disk.
-  cache.set(key, { raw: JSON.stringify(next), value: next });
+  cache.set(key, next);
   notify();
   scheduleFlush();
 }
@@ -144,7 +141,7 @@ export function setWorktreeUIScroll(
     diffs: { scroll: { ...prev.diffs.scroll, [cacheKey]: top } },
   };
   pendingWrites.set(key, next);
-  cache.set(key, { raw: JSON.stringify(next), value: next });
+  cache.set(key, next);
   scheduleFlush();
 }
 
