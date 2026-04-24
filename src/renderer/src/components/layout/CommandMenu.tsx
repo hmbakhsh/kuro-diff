@@ -148,6 +148,19 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           close()
         },
       })
+      out.push({
+        id: 'goto:commits',
+        label: 'Go to Commits',
+        hint: 'Current worktree',
+        icon: History,
+        run: () => {
+          void navigate({
+            to: '/repos/$repoId/wt/$worktreeId/commits',
+            params: { repoId: activeRepoId, worktreeId: activeWorktreeId },
+          })
+          close()
+        },
+      })
     }
     if (activeRepoId) {
       out.push({

@@ -14,6 +14,7 @@ export type MenuCommand =
   | 'view.toggle-theme'
   | 'go.files'
   | 'go.diffs'
+  | 'go.commits'
   | 'go.prs'
   | 'go.settings'
   | 'go.next-tab'
@@ -118,7 +119,8 @@ export function installApplicationMenu(): void {
       submenu: [
         item('Files', 'go.files', 'CmdOrCtrl+1'),
         item('Diffs', 'go.diffs', 'CmdOrCtrl+2'),
-        item('Pull Requests', 'go.prs', 'CmdOrCtrl+3'),
+        item('Commits', 'go.commits', 'CmdOrCtrl+3'),
+        item('Pull Requests', 'go.prs', 'CmdOrCtrl+4'),
         item('Settings', 'go.settings'),
         { type: 'separator' },
         item('Previous Tab', 'go.prev-tab', 'CmdOrCtrl+Shift+['),

@@ -23,6 +23,7 @@ type MenuCommand =
   | 'view.toggle-theme'
   | 'go.files'
   | 'go.diffs'
+  | 'go.commits'
   | 'go.prs'
   | 'go.settings'
   | 'go.next-tab'
@@ -32,7 +33,8 @@ type MenuCommand =
 
 const MENU_CHANNEL = 'kuro:menu'
 
-const TABS: Array<'files' | 'diffs' | 'prs'> = ['files', 'diffs', 'prs']
+type Tab = 'files' | 'diffs' | 'commits' | 'prs'
+const TABS: Tab[] = ['files', 'diffs', 'commits', 'prs']
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -79,21 +81,25 @@ function RootLayout() {
       const last = matches[matches.length - 1]?.routeId ?? ''
       if (last.includes('/files')) return 0
       if (last.includes('/diffs')) return 1
-      if (last.includes('/prs')) return 2
+      if (last.includes('/commits')) return 2
+      if (last.includes('/prs')) return 3
       return 0
     }
-    function navigateToTab(tab: 'files' | 'diffs' | 'prs'): void {
+    function navigateToTab(tab: Tab): void {
       if (!activeRepoId) return
       if (tab === 'prs') {
         void navigate({ to: '/repos/$repoId/prs', params: { repoId: activeRepoId } })
         return
       }
       if (!activeWorktreeId) return
+      const to =
+        tab === 'files'
+          ? '/repos/$repoId/wt/$worktreeId/files'
+          : tab === 'diffs'
+            ? '/repos/$repoId/wt/$worktreeId/diffs'
+            : '/repos/$repoId/wt/$worktreeId/commits'
       void navigate({
-        to:
-          tab === 'files'
-            ? '/repos/$repoId/wt/$worktreeId/files'
-            : '/repos/$repoId/wt/$worktreeId/diffs',
+        to,
         params: { repoId: activeRepoId, worktreeId: activeWorktreeId },
       })
     }
@@ -127,6 +133,9 @@ function RootLayout() {
           return
         case 'go.diffs':
           navigateToTab('diffs')
+          return
+        case 'go.commits':
+          navigateToTab('commits')
           return
         case 'go.prs':
           navigateToTab('prs')

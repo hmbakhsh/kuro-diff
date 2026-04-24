@@ -28,6 +28,14 @@ function WorktreeLayout() {
           Diffs
         </Link>
         <Link
+          to="/repos/$repoId/wt/$worktreeId/commits"
+          params={{ repoId, worktreeId }}
+          className={tabIdleClass}
+          activeProps={{ className: tabActiveClass }}
+        >
+          Commits
+        </Link>
+        <Link
           to="/repos/$repoId/prs"
           params={{ repoId }}
           className={tabIdleClass}
