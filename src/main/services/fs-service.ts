@@ -174,19 +174,70 @@ function langFromExt(ext: string, abs: string): string {
  *
  * Paths are returned as repo-relative with forward slashes (git's native form).
  */
-export async function listRepoFiles(repoPath: string): Promise<string[]> {
-  const [tracked, untracked] = await Promise.all([
+export interface TreeResult {
+  /** Flat, sorted, forward-slash paths to feed into the file tree. */
+  files: string[]
+  /**
+   * Ignored entries, collapsed at directory boundaries — a fully-ignored
+   * folder (e.g. `node_modules/`) is a single prefix, not thousands of files.
+   * Rendered as leaf rows that are dimmed and unclickable. Empty when
+   * `includeIgnored` is false.
+   */
+  ignoredPrefixes: string[]
+}
+
+export async function listRepoFiles(
+  repoPath: string,
+  opts: { includeIgnored?: boolean } = {},
+): Promise<TreeResult> {
+  const split = (s: string): string[] =>
+    s.split('\0').filter((x) => x.length > 0)
+
+  const trackedAndUntracked = Promise.all([
     runGit(['ls-files', '-z'], { cwd: repoPath }),
     runGit(['ls-files', '--others', '--exclude-standard', '-z'], {
       cwd: repoPath,
     }),
   ])
 
-  const split = (s: string): string[] =>
-    s.split('\0').filter((x) => x.length > 0)
+  if (!opts.includeIgnored) {
+    const [tracked, untracked] = await trackedAndUntracked
+    const all = new Set<string>([...split(tracked), ...split(untracked)])
+    return { files: [...all].sort(), ignoredPrefixes: [] }
+  }
 
-  const all = new Set<string>([...split(tracked), ...split(untracked)])
-  return [...all].sort()
+  // `--directory` collapses fully-ignored folders to a single entry. Avoids
+  // enumerating tens of thousands of files inside `node_modules/` etc., which
+  // dominates both the git call and Pierre's tree-build cost.
+  const [[tracked, untracked], ignoredDirsRaw] = await Promise.all([
+    trackedAndUntracked,
+    runGit(
+      [
+        'ls-files',
+        '--others',
+        '--ignored',
+        '--exclude-standard',
+        '--directory',
+        '-z',
+      ],
+      { cwd: repoPath },
+    ),
+  ])
+
+  const visible = new Set<string>([...split(tracked), ...split(untracked)])
+  const ignoredPrefixes = split(ignoredDirsRaw)
+    .map((p) => (p.endsWith('/') ? p.slice(0, -1) : p))
+    // Defensive: `--directory` shouldn't collapse a dir that contains tracked
+    // files, but if something slips through, keep the tracked view authoritative.
+    .filter((p) => {
+      if (visible.has(p)) return false
+      const pfx = `${p}/`
+      for (const v of visible) if (v.startsWith(pfx)) return false
+      return true
+    })
+
+  const all = new Set<string>([...visible, ...ignoredPrefixes])
+  return { files: [...all].sort(), ignoredPrefixes }
 }
 
 export class FsAccessError extends Error {

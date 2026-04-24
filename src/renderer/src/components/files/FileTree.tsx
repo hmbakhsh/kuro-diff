@@ -6,9 +6,48 @@ import { cn } from '@renderer/lib/cn'
 interface FileTreeProps {
   /** Flat, repo-relative, forward-slash paths. */
   files: string[]
+  /**
+   * Paths (already collapsed at directory boundaries) that should be rendered
+   * as gitignored. Items whose path equals, or sits under, any prefix are
+   * visually dimmed and italicized.
+   */
+  ignoredPrefixes?: string[]
   selectedPath: string | null
   onSelect(path: string): void
   className?: string
+}
+
+/**
+ * Sorts paths so that, within each directory level: non-dot folders, non-dot
+ * files, dot folders/files, then ignored entries — each group alphabetical
+ * (case-insensitive, natural numeric). Pierre walks this list in order and
+ * inserts children into Sets, so input order dictates render order.
+ */
+function sortFoldersFirst(files: string[], ignored: Set<string>): string[] {
+  return [...files].sort((a, b) => {
+    const aParts = a.split('/')
+    const bParts = b.split('/')
+    const minLen = Math.min(aParts.length, bParts.length)
+    for (let i = 0; i < minLen; i++) {
+      if (aParts[i] === bParts[i]) continue
+      const aPrefix = aParts.slice(0, i + 1).join('/')
+      const bPrefix = bParts.slice(0, i + 1).join('/')
+      const aIsIgnored = ignored.has(aPrefix)
+      const bIsIgnored = ignored.has(bPrefix)
+      if (aIsIgnored !== bIsIgnored) return aIsIgnored ? 1 : -1
+      const aIsDot = aParts[i]!.startsWith('.')
+      const bIsDot = bParts[i]!.startsWith('.')
+      if (aIsDot !== bIsDot) return aIsDot ? 1 : -1
+      const aIsFolder = i < aParts.length - 1
+      const bIsFolder = i < bParts.length - 1
+      if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1
+      return aParts[i]!.localeCompare(bParts[i]!, undefined, {
+        sensitivity: 'base',
+        numeric: true,
+      })
+    }
+    return aParts.length - bParts.length
+  })
 }
 
 /**
@@ -30,6 +69,7 @@ interface FileTreeProps {
  */
 export function FileTree({
   files,
+  ignoredPrefixes,
   selectedPath,
   onSelect,
   className,
@@ -48,23 +88,36 @@ export function FileTree({
     selectedPathRef.current = selectedPath
   }, [selectedPath])
 
+  const ignoredSet = useMemo(
+    () => new Set(ignoredPrefixes ?? []),
+    [ignoredPrefixes],
+  )
+  const sortedFiles = useMemo(
+    () => sortFoldersFirst(files, ignoredSet),
+    [files, ignoredSet],
+  )
+
   const options = useMemo<FileTreeOptions>(() => {
     return {
-      files,
+      files: sortedFiles,
       flattenEmptyDirectories: true,
       config: {
         onPrimaryAction: (item) => {
-          if (!item.isFolder()) onSelectRef.current(item.getId())
+          if (item.isFolder()) return
+          const id = item.getId()
+          if (ignoredSet.has(id)) return
+          onSelectRef.current(id)
         },
         setSelectedItems: (ids) => {
           if (ids.length !== 1) return
           const id = ids[0]!
           if (id === selectedPathRef.current) return
-          if (files.includes(id)) onSelectRef.current(id)
+          if (ignoredSet.has(id)) return
+          if (sortedFiles.includes(id)) onSelectRef.current(id)
         },
       },
     }
-  }, [files])
+  }, [sortedFiles, ignoredSet])
 
   useEffect(() => {
     const container = containerRef.current
@@ -79,7 +132,47 @@ export function FileTree({
     }
   }, [options])
 
+  // Dim items whose path equals, or sits under, any ignored prefix. We inject
+  // a single stylesheet into Pierre's shadow root — CSS selectors survive
+  // Preact re-renders (expand/collapse, selection) without DOM mutation.
+  const ignoredCss = useMemo(
+    () => buildIgnoredCss(ignoredPrefixes),
+    [ignoredPrefixes],
+  )
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const pierreEl = container.querySelector(
+      'pierre-file-tree',
+    ) as HTMLElement | null
+    const shadow = pierreEl?.shadowRoot
+    if (!shadow || !ignoredCss) return
+    const sheet = new CSSStyleSheet()
+    sheet.replaceSync(ignoredCss)
+    shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet]
+    return () => {
+      shadow.adoptedStyleSheets = shadow.adoptedStyleSheets.filter(
+        (s) => s !== sheet,
+      )
+    }
+  }, [ignoredCss, options])
+
   return (
     <div ref={containerRef} className={cn('file-tree h-full', className)} />
   )
+}
+
+function buildIgnoredCss(prefixes: string[] | undefined): string | null {
+  if (!prefixes || prefixes.length === 0) return null
+  const selectors: string[] = []
+  for (const p of prefixes) {
+    const exact = CSS.escape(p)
+    const prefix = CSS.escape(`${p}/`)
+    selectors.push(`[data-item-id="${exact}"]`)
+    selectors.push(`[data-item-id^="${prefix}"]`)
+  }
+  return `${selectors.join(',\n')} {
+    opacity: 0.5;
+    font-style: italic;
+  }`
 }
