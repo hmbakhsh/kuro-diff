@@ -21,6 +21,10 @@ export function installContentSecurityPolicy(): void {
     'base-uri': ["'none'"],
     'frame-ancestors': ["'none'"],
     'form-action': ["'none'"],
+    // Pierre's diff renderer spawns Web Workers from the bundled app origin.
+    // `worker-src` falls back to default-src (none) otherwise; without this
+    // the worker pool fails silently and diffs render unhighlighted.
+    'worker-src': ["'self'", 'blob:'],
   }
 
   const rendererUrl = process.env.ELECTRON_RENDERER_URL

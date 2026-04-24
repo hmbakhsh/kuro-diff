@@ -30,6 +30,14 @@ export default defineConfig({
         '@shared': resolve('src/shared'),
       },
     },
+    // Pierre's diff worker is a `type: 'module'` worker loaded via
+    // `new URL(…, import.meta.url)`. Vite defaults worker.format to 'iife',
+    // which is incompatible with code-splitting (shiki imports chunk out of
+    // the portable worker). ES modules are the correct format for module
+    // workers and keep the CSP `worker-src 'self'` working.
+    worker: {
+      format: 'es',
+    },
     plugins: [
       TanStackRouterVite({
         target: 'react',

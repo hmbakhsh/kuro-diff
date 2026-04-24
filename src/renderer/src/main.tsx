@@ -3,9 +3,11 @@ import { createHashHistory, createRouter, RouterProvider } from '@tanstack/react
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { httpLink } from '@trpc/client'
 import { ipcLink } from 'trpc-electron/renderer'
+import { WorkerPoolContextProvider } from '@pierre/diffs/react'
 import { trpc } from './trpc'
 import { routeTree } from './routeTree.gen'
 import { primeHighlighter } from './lib/highlighter'
+import { workerPoolConfig } from './lib/worker-pool'
 import './styles/globals.css'
 
 // Warm Pierre's Shiki singleton. Fire-and-forget — the File component will
@@ -56,7 +58,12 @@ if (!rootEl) throw new Error('#root not found')
 ReactDOM.createRoot(rootEl).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <WorkerPoolContextProvider
+        poolOptions={workerPoolConfig.poolOptions}
+        highlighterOptions={workerPoolConfig.highlighterOptions}
+      >
+        <RouterProvider router={router} />
+      </WorkerPoolContextProvider>
     </QueryClientProvider>
   </trpc.Provider>,
 )
