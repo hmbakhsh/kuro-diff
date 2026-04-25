@@ -5,6 +5,7 @@ release
 dist
 .vite-inspect
 .tanstack
+*.tsbuildinfo
 
 # generated code
 src/renderer/src/routeTree.gen.ts
@@ -12,6 +13,7 @@ src/renderer/src/routeTree.gen.ts
 # editor/os
 .DS_Store
 *.log
+.claude/
 
 # env
 .env
