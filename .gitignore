@@ -13,7 +13,8 @@ src/renderer/src/routeTree.gen.ts
 # editor/os
 .DS_Store
 *.log
-.claude/
+.claude/*
+!.claude/skills/
 
 # env
 .env
